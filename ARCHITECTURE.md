@@ -292,13 +292,16 @@ GET  /api/Your Organization/vm/status/{deploymentId}
 
 ### 2. Azure Integration
 
-#### ARM/Bicep Deployment
+#### Terraform Deployment
 ```bash
-az deployment group create \
-  --resource-group rg-app-prod \
-  --template-file main.bicep \
-  --parameters @parameters.json \
-  --what-if  # Pre-flight validation
+# Initialize Terraform
+terraform init
+
+# Plan deployment with pre-flight validation
+terraform plan -var-file="environments/prod.tfvars"
+
+# Apply deployment
+terraform apply -var-file="environments/prod.tfvars"
 ```
 
 #### Azure Policy Integration

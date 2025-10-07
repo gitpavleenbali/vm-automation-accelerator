@@ -1,18 +1,18 @@
-# VM Automation Accelerator - Terraform Version
+# VM Automation Accelerator - Terraform Guide
 
 ## 🎯 Executive Summary
 
-This VM Automation Accelerator has been **refactored for Terraform** with enterprise-grade state management, modular architecture, and production-ready best practices.
+This VM Automation Accelerator is built with **enterprise-grade Terraform** featuring robust state management, modular architecture, and production-ready best practices.
 
-### Key Changes from Bicep
+### Key Features
 
-| Aspect | Bicep Approach | Terraform Approach |
-|--------|----------------|-------------------|
-| **State Management** | ARM tracks state automatically | Remote state in Azure Storage with locking |
-| **Modularity** | Bicep modules with parameters | Terraform modules with typed variables |
-| **Validation** | ARM template validation | Terraform validate + plan + Checkov scan |
-| **Versioning** | ARM API versions | Provider version constraints |
-| **State Locking** | N/A (ARM handles) | Azure Blob lease mechanism |
+| Feature | Implementation |
+|---------|---------------|
+| **State Management** | Remote state in Azure Storage with locking |
+| **Modularity** | Reusable Terraform modules with typed variables |
+| **Validation** | Terraform validate + plan + Checkov security scan |
+| **Versioning** | Provider version constraints and pinning |
+| **State Locking** | Azure Blob lease mechanism for safe concurrent operations |
 | **Drift Detection** | Manual via Portal | `terraform plan` shows drift |
 | **Import** | Limited support | Full `terraform import` capability |
 
@@ -294,39 +294,32 @@ terraform import azurerm_windows_virtual_machine.vm /subscriptions/.../resourceG
 
 ---
 
-## 📊 Comparison: Bicep vs Terraform
+## 🎯 Why Terraform for This Accelerator
 
-### When to Use Bicep
+### Key Advantages
 
-✅ **Azure-only environments**
-✅ **ARM template familiarity**
-✅ **No state management complexity desired**
-✅ **Azure Portal integration preferred**
+✅ **Multi-cloud ready** - Future-proof for hybrid/multi-cloud scenarios
+✅ **Explicit state management** - Full control and visibility
+✅ **Advanced drift detection** - Built-in `terraform plan` comparison
+✅ **Mature module ecosystem** - Leverage Azure Verified Modules (AVM)
+✅ **Import existing resources** - Full support for brownfield scenarios
+✅ **Complex variable validation** - Type checking and custom validation rules
+✅ **Strong testing support** - Terratest, Kitchen-Terraform, and more
+✅ **Large community** - 3000+ providers and extensive documentation
 
-### When to Use Terraform (This Accelerator)
+### Enterprise Benefits
 
-✅ **Multi-cloud or hybrid environments** (future-proof)
-✅ **Explicit state management required**
-✅ **Advanced drift detection needed**
-✅ **Mature module ecosystem desired**
-✅ **Team familiar with Terraform**
-✅ **Import existing resources needed**
-✅ **Complex variable validation required**
-
-### Feature Comparison
-
-| Feature | Bicep | Terraform |
-|---------|-------|-----------|
-| **State Management** | Implicit (ARM) | Explicit (remote backend) |
-| **State Locking** | N/A | Azure Blob lease |
-| **State Versioning** | N/A | Blob versioning |
-| **Drift Detection** | Manual | `terraform plan` |
-| **Import Resources** | Limited | Full support |
-| **Variable Validation** | Basic | Advanced with `validation` blocks |
-| **Modules** | Bicep modules | HCL modules (reusable) |
-| **Provider Ecosystem** | Azure only | 3000+ providers |
-| **IDE Support** | VS Code extension | Multiple IDEs + LSP |
-| **Testing** | Limited | Terratest, Kitchen-Terraform |
+| Capability | Benefit |
+|------------|---------|
+| **State Management** | Remote state in Azure Storage with versioning |
+| **State Locking** | Azure Blob lease prevents concurrent conflicts |
+| **Drift Detection** | Automatic detection of configuration changes |
+| **Import Support** | Manage existing Azure resources with Terraform |
+| **Variable Validation** | Enforce compliance and prevent misconfigurations |
+| **Modular Design** | Reusable HCL modules for consistency |
+| **Provider Ecosystem** | Integrate with 3000+ services beyond Azure |
+| **IDE Support** | Multiple IDEs with Language Server Protocol |
+| **Testing Framework** | Comprehensive testing with Terratest |
 
 ---
 
@@ -458,11 +451,13 @@ $env:TF_VAR_domain_join_password = $domainPassword
 
 ---
 
-## 🆚 Migration Path (Bicep → Terraform)
+---
 
-If you have existing Bicep-deployed resources:
+## 🔄 Importing Existing Azure Resources
 
-### Option 1: Import Existing Resources
+If you have existing Azure resources to manage with Terraform:
+
+### Import Existing VMs
 
 ```bash
 # List existing resources
@@ -476,17 +471,17 @@ terraform import module.virtual_machine.azurerm_windows_virtual_machine.vm[0] \
 terraform plan  # Should show no changes
 ```
 
-### Option 2: Side-by-Side Migration
+### Brownfield Deployment Strategy
 
 ```bash
 # Deploy new resources with Terraform
 terraform apply -target=module.virtual_machine
 
-# Decommission Bicep-deployed resources
-az deployment group delete --name vm-deployment-bicep
+# Verify all resources are managed
+terraform state list
 
-# Verify no orphaned resources
-az resource list --resource-group rg-app-prod
+# Check for any drift from expected configuration
+terraform plan
 ```
 
 ---

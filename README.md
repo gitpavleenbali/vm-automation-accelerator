@@ -2,11 +2,11 @@
 
 ## Overview
 
-This accelerator provides a **comprehensive, production-ready solution** for automated VM deployment in Azure Enterprise-Scale Landing Zones (ESLZ), specifically designed for **enterprise Modern IaaS initiative**.
+This accelerator provides a **comprehensive, production-ready solution** for automated VM deployment in Azure Enterprise-Scale Landing Zones (ESLZ), designed for enterprise-grade IaaS automation.
 
-### 🎯 Solution Scope: Option Y (Semi Click-Ops with Full VM Automation)
+### 🎯 Solution Approach
 
-This solution addresses the gap between fully manual VM provisioning and complete self-service automation, providing:
+This solution bridges the gap between fully manual VM provisioning and complete self-service automation, providing:
 
 - ✅ **Automated VM provisioning** via ServiceNow catalog
 - ✅ **Centralized governance** with decentralized agility
@@ -112,120 +112,73 @@ Based on enterprise MVP platform requirements:
 vm-automation-accelerator/
 ├── README.md                          # This file
 ├── ARCHITECTURE.md                    # Detailed architecture documentation
-├── DEPLOYMENT.md                      # Step-by-step deployment guide
+├── LICENSE                            # MIT License
 ├── CONTRIBUTING.md                    # Contribution guidelines
 │
-├── docs/                              # Documentation
-│   ├── architecture-diagrams/         # Architecture visuals
-│   ├── api-integration-guide.md       # ServiceNow API integration
-│   ├── governance-guide.md            # Governance and compliance
-│   ├── troubleshooting.md             # Common issues and solutions
-│   └── faq.md                         # Frequently asked questions
-│
 ├── iac/                               # Infrastructure as Code
-│   ├── bicep/                         # Bicep modules
-│   │   ├── modules/                   # Reusable Bicep modules
-│   │   │   ├── vm-windows/            # Windows VM deployment
-│   │   │   ├── vm-linux/              # Linux VM deployment
-│   │   │   ├── networking/            # vNet, Subnet, NSG, FCR
-│   │   │   ├── backup/                # Azure Backup configuration
-│   │   │   ├── monitoring/            # Log Analytics, Alerts
-│   │   │   ├── asr/                   # Azure Site Recovery (optional)
-│   │   │   └── extensions/            # VM extensions (agents, hardening)
-│   │   ├── main.bicep                 # Main orchestration template
-│   │   └── parameters/                # Environment-specific parameters
-│   │       ├── dev.parameters.json
-│   │       ├── uat.parameters.json
-│   │       └── prod.parameters.json
-│   │
-│   └── terraform/                     # Terraform modules (alternative)
+│   └── terraform/                     # Terraform modules
 │       ├── modules/                   # Reusable Terraform modules
-│       ├── main.tf
-│       └── environments/
+│       │   ├── compute/               # VM deployment module
+│       │   ├── monitoring/            # Monitoring configuration
+│       │   ├── network-interface/     # Network interface module
+│       │   └── network-security/      # Network security module
+│       ├── main.tf                    # Main orchestration
+│       ├── variables.tf               # Variable definitions
+│       ├── outputs.tf                 # Output values
+│       ├── backend.tf                 # State backend configuration
+│       └── terraform.tfvars.example   # Example configuration
 │
 ├── pipelines/                         # CI/CD Pipeline definitions
-│   ├── azure-devops/                  # Azure DevOps YAML pipelines
-│   │   ├── vm-deploy-pipeline.yml     # VM deployment orchestration
-│   │   ├── vm-decommission-pipeline.yml
-│   │   ├── vm-disk-modify-pipeline.yml
-│   │   ├── vm-sku-change-pipeline.yml
-│   │   ├── vm-restore-pipeline.yml
-│   │   └── templates/                 # Reusable pipeline templates
-│   │       ├── quota-validation.yml
-│   │       ├── cost-forecast.yml
-│   │       ├── compliance-check.yml
-│   │       └── servicenow-approval.yml
-│   │
-│   └── github-actions/                # GitHub Actions (alternative)
-│       └── workflows/
+│   └── azure-devops/                  # Azure DevOps YAML pipelines
+│       ├── vm-deploy-pipeline.yml     # VM deployment orchestration
+│       ├── terraform-vm-deploy-pipeline.yml  # Terraform deployment
+│       ├── vm-disk-modify-pipeline.yml
+│       ├── vm-sku-change-pipeline.yml
+│       └── vm-restore-pipeline.yml
 │
 ├── scripts/                           # Automation scripts
 │   ├── powershell/                    # PowerShell scripts
-│   │   ├── Install-Your OrganizationAgents.ps1   # Agent installation
-│   │   ├── Apply-Your OrganizationHardening.ps1  # Security hardening
-│   │   ├── Configure-ADDNSConnectivity.ps1
+│   │   ├── Install-MonitoringAgents.ps1   # Agent installation
+│   │   ├── Apply-SecurityHardening.ps1    # Security hardening
 │   │   ├── Validate-Quota.ps1         # Quota validation
-│   │   ├── Get-CostForecast.ps1       # Cost estimation
-│   │   └── Remove-VMResources.ps1     # Decommissioning cleanup
+│   │   └── Generate-ComplianceReport.ps1  # Compliance reporting
 │   │
 │   ├── bash/                          # Bash scripts (Linux VMs)
-│   │   ├── install-Your Organization-agents.sh
-│   │   ├── apply-Your Organization-hardening.sh
-│   │   └── configure-ad-dns.sh
+│   │   └── install-monitoring-agents.sh
 │   │
 │   └── python/                        # Python scripts (API integration)
 │       ├── servicenow_client.py       # ServiceNow REST API client
 │       ├── quota_manager.py           # Quota tracking logic
 │       └── cost_calculator.py         # Cost forecasting
 │
-├── config/                            # Configuration files
-│   ├── vm-sizes.json                  # Allowed VM SKUs by environment
-│   ├── os-images.json                 # Approved OS images
-│   ├── backup-policies.json           # Backup policy templates
-│   ├── monitoring-alerts.json         # Alert rule definitions
-│   ├── compliance-policies.json       # Azure Policy definitions
-│   └── servicenow-config.json         # ServiceNow integration settings
-│
 ├── servicenow/                        # ServiceNow integration
 │   ├── catalog-items/                 # Catalog item definitions
-│   │   ├── vm-order-catalog.xml
-│   │   ├── vm-decommission-catalog.xml
-│   │   ├── vm-disk-modify-catalog.xml
-│   │   ├── vm-sku-change-catalog.xml
-│   │   └── vm-restore-catalog.xml
+│   │   ├── vm-order-catalog-item.xml
+│   │   ├── vm-disk-modify-catalog-item.xml
+│   │   ├── vm-sku-change-catalog-item.xml
+│   │   └── vm-restore-catalog-item.xml
 │   │
-│   ├── workflows/                     # ServiceNow workflow definitions
-│   │   ├── vm-approval-workflow.xml
-│   │   └── exception-approval-workflow.xml
-│   │
-│   └── business-rules/                # ServiceNow business rules
-│       └── vm-validation-rules.js
+│   └── workflows/                     # ServiceNow workflow definitions
+│       └── vm-provisioning-workflow.xml
 │
 ├── governance/                        # Governance and compliance
-│   ├── azure-policies/                # Azure Policy definitions
-│   │   ├── vm-naming-policy.json
-│   │   ├── vm-tagging-policy.json
-│   │   ├── vm-backup-enforcement.json
-│   │   └── vm-network-compliance.json
+│   ├── policies/                      # Azure Policy definitions
+│   │   ├── require-mandatory-tags.json
+│   │   ├── require-encryption-at-host.json
+│   │   ├── require-azure-backup.json
+│   │   ├── restrict-vm-sku-sizes.json
+│   │   ├── enforce-naming-convention.json
+│   │   └── policy-initiative.json
 │   │
-│   ├── rbac/                          # RBAC role definitions
-│   │   ├── vm-deployer-role.json
-│   │   └── vm-operator-role.json
+│   ├── dashboards/                    # Azure Monitor dashboards
+│   │   ├── vm-compliance-dashboard.json
+│   │   └── vm-cost-dashboard.json
 │   │
-│   └── monitoring-dashboards/         # Azure Monitor dashboards
-│       ├── vm-compliance-dashboard.json
-│       └── cost-tracking-dashboard.json
+│   └── README.md                      # Governance documentation
 │
-├── tests/                             # Testing scripts
-│   ├── unit/                          # Unit tests for scripts
-│   ├── integration/                   # Integration tests
-│   └── e2e/                           # End-to-end deployment tests
-│
-└── examples/                          # Example configurations
-    ├── simple-windows-vm/             # Basic Windows VM example
-    ├── simple-linux-vm/               # Basic Linux VM example
-    ├── ha-vm-with-asr/                # High-availability VM with ASR
-    └── multi-disk-vm/                 # VM with multiple data disks
+└── terraform-docs/                    # Terraform documentation
+    ├── TERRAFORM-GUIDE.md             # Terraform deployment guide
+    └── STATE-MANAGEMENT.md            # State backend setup
 ```
 
 ---
@@ -270,14 +223,14 @@ vm-automation-accelerator/
 
 5. **Test deployment**:
    ```bash
-   # Deploy a test VM
-   az deployment group create \
-     --resource-group rg-test \
-     --template-file iac/bicep/main.bicep \
-     --parameters @iac/bicep/parameters/dev.parameters.json
+   # Deploy a test VM using Terraform
+   cd iac/terraform
+   terraform init
+   terraform plan
+   terraform apply
    ```
 
-For detailed deployment instructions, see **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
+For detailed deployment instructions, see the [Terraform Guide](./terraform-docs/TERRAFORM-GUIDE.md).
 
 ---
 
@@ -355,11 +308,11 @@ sequenceDiagram
 ## 📖 Documentation
 
 - **[Architecture Guide](./ARCHITECTURE.md)**: Detailed architecture and design decisions
-- **[Deployment Guide](./DEPLOYMENT.md)**: Step-by-step deployment instructions
-- **[ServiceNow Integration](./docs/api-integration-guide.md)**: REST API setup and configuration
-- **[Governance Guide](./docs/governance-guide.md)**: Compliance and policy enforcement
-- **[Troubleshooting](./docs/troubleshooting.md)**: Common issues and resolutions
-- **[FAQ](./docs/faq.md)**: Frequently asked questions
+- **[Project Summary](./PROJECT-SUMMARY.md)**: Complete feature overview and implementation details
+- **[Terraform Guide](./terraform-docs/TERRAFORM-GUIDE.md)**: Terraform deployment and best practices
+- **[State Management](./terraform-docs/STATE-MANAGEMENT.md)**: Terraform state configuration and backend setup
+- **[Terraform Module README](./iac/terraform/README.md)**: Module-specific deployment instructions
+- **[Governance README](./governance/README.md)**: Azure Policy and compliance implementation
 
 ---
 
@@ -378,9 +331,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🆘 Support
 
 For issues, questions, or feature requests:
-1. Check **[Troubleshooting Guide](./docs/troubleshooting.md)**
-2. Search **[Existing Issues](https://github.com/your-org/vm-automation-accelerator/issues)**
-3. Create a **[New Issue](https://github.com/your-org/vm-automation-accelerator/issues/new)**
+1. Review the **[Documentation](#-documentation)** section
+2. Search **[Existing Issues](https://github.com/gitpavleenbali/vm-automation-accelerator/issues)**
+3. Create a **[New Issue](https://github.com/gitpavleenbali/vm-automation-accelerator/issues/new)**
 
 ---
 

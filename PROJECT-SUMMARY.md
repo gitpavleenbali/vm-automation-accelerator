@@ -9,7 +9,7 @@
 
 ## 🎯 Executive Summary
 
-This is a **comprehensive, production-ready VM automation accelerator** designed for enterprise Modern IaaS initiatives. The solution implements **Option Y (Semi Click-Ops with Full VM Automation)**, providing automated VM provisioning with centralized governance and decentralized agility.
+This is a **comprehensive, production-ready VM automation accelerator** designed for enterprise-grade IaaS automation. The solution provides **automated VM provisioning with centralized governance and decentralized agility**, enabling self-service capabilities while maintaining compliance and security standards.
 
 ### Key Achievements
 
@@ -417,7 +417,7 @@ vm-automation-accelerator/
 - Added MIT License
 - Created contribution guidelines
 - Genericized all placeholders
-- Removed Bicep (Terraform-only)
+- Terraform-based Infrastructure as Code
 - Consolidated documentation
 
 ---

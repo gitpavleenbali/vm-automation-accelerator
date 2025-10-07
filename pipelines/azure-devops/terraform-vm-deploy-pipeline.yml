@@ -1,5 +1,6 @@
 # Azure DevOps Pipeline for Terraform VM Deployment
 # Production-ready pipeline with state management, plan/apply workflow, and approval gates
+# Supports multi-environment deployments (Dev, UAT, Prod)
 
 trigger:
   branches:
@@ -20,18 +21,43 @@ pr:
     include:
       - iac/terraform/**
 
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - uat
+      - prod
+  
+  - name: action
+    displayName: 'Terraform Action'
+    type: string
+    default: 'plan'
+    values:
+      - plan
+      - apply
+      - destroy
+
 variables:
-  - group: vm-automation-secrets  # Variable group with sensitive values
+  - group: vm-automation-secrets-${{ parameters.environment }}  # Environment-specific variable group
   - name: terraformVersion
     value: '1.5.7'
+  - name: environment
+    value: ${{ parameters.environment }}
   - name: azureServiceConnection
-    value: 'azure-prod-service-connection'
+    value: 'azure-${{ parameters.environment }}-service-connection'
   - name: backendStorageAccount
-    value: 'stuniptertfstateprod'
+    value: 'sttfstate${{ parameters.environment }}001'  # Update with your storage account
   - name: backendContainer
     value: 'tfstate'
   - name: backendResourceGroup
-    value: 'rg-terraform-state-prod'
+    value: 'rg-terraform-state-${{ parameters.environment }}'
+  - name: backendKey
+    value: 'vm-automation-${{ parameters.environment }}.tfstate'
+  - name: tfvarsFile
+    value: 'environments/${{ parameters.environment }}.tfvars'
   - name: workingDirectory
     value: '$(System.DefaultWorkingDirectory)/iac/terraform'
 
@@ -231,10 +257,12 @@ stages:
                 export TF_VAR_domain_join_password="$DOMAIN_JOIN_PASSWORD"
                 export TF_VAR_scripts_storage_account_key="$STORAGE_ACCOUNT_KEY"
                 
-                # Generate plan
+                # Set environment
+                ENVIRONMENT="$(environment)"
+                
+                # Generate plan with environment-specific tfvars
                 terraform plan \
-                  -var-file="terraform.tfvars" \
-                  -var="environment=${ENVIRONMENT}" \
+                  -var-file="$(tfvarsFile)" \
                   -out="$(Build.ArtifactStagingDirectory)/tfplan" \
                   -detailed-exitcode || true
                 
@@ -376,11 +404,8 @@ stages:
                     inlineScript: |
                       echo "Initializing Terraform..."
                       
-                      if [[ "$(Build.SourceBranchName)" == "main" ]]; then
-                        ENVIRONMENT="prod"
-                      else
-                        ENVIRONMENT="dev"
-                      fi
+                      # Use environment from pipeline parameter
+                      ENVIRONMENT="$(environment)"
                       
                       terraform init -backend-config="backend-config/${ENVIRONMENT}.hcl"
                 

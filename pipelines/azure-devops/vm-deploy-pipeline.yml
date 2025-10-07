@@ -57,10 +57,10 @@ parameters:
 variables:
   - name: azureServiceConnection
     value: 'AzureServiceConnection-Prod' # Replace with your service connection
-  - name: parametersFile
-    value: 'iac/bicep/parameters/${{ parameters.environment }}.parameters.json'
-  - name: templateFile
-    value: 'iac/bicep/main.bicep'
+  - name: tfvarsFile
+    value: 'iac/terraform/environments/${{ parameters.environment }}.tfvars'
+  - name: terraformWorkingDir
+    value: 'iac/terraform'
   - name: costThreshold
     value: 1000 # USD per month
   - name: serviceNowApiUrl
@@ -240,22 +240,31 @@ stages:
                     SecretsFilter: 'vm-admin-password,ad-domain-password'
                     RunAsPreJob: true
                     
-                - task: AzureCLI@2
-                  displayName: 'Deploy Bicep Template'
+                - task: TerraformTaskV4@4
+                  displayName: 'Terraform Init'
                   inputs:
-                    azureSubscription: '$(azureServiceConnection)'
-                    scriptType: 'bash'
-                    scriptLocation: 'inlineScript'
-                    inlineScript: |
-                      az deployment group create \
-                        --resource-group ${{ parameters.resourceGroupName }} \
-                        --template-file $(templateFile) \
-                        --parameters @$(parametersFile) \
-                        --parameters vmName=${{ parameters.vmName }} \
-                                     adminPasswordOrKey=$(vm-admin-password) \
-                                     serviceNowTicket=${{ parameters.serviceNowTicket }} \
-                        --name "vm-deployment-$(Build.BuildId)" \
-                        --verbose
+                    provider: 'azurerm'
+                    command: 'init'
+                    workingDirectory: '$(terraformWorkingDir)'
+                    backendServiceArm: '$(azureServiceConnection)'
+                    
+                - task: TerraformTaskV4@4
+                  displayName: 'Terraform Plan'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'plan'
+                    workingDirectory: '$(terraformWorkingDir)'
+                    commandOptions: '-var-file="$(tfvarsFile)" -out=tfplan'
+                    environmentServiceNameAzureRM: '$(azureServiceConnection)'
+                    
+                - task: TerraformTaskV4@4
+                  displayName: 'Terraform Apply'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'apply'
+                    workingDirectory: '$(terraformWorkingDir)'
+                    commandOptions: 'tfplan'
+                    environmentServiceNameAzureRM: '$(azureServiceConnection)'
                         
                 - powershell: |
                     Write-Host "##vso[task.setvariable variable=DeploymentStatus;isOutput=true]Success"
