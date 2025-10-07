@@ -1,0 +1,45 @@
+{
+  "properties": {
+    "displayName": "Enterprise - Require encryption at host for VMs",
+    "policyType": "Custom",
+    "mode": "Indexed",
+    "description": "This policy ensures that all virtual machines have encryption at host enabled for compliance with Your Organization security standards.",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Compute",
+      "source": "Your Organization Cloud Governance"
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect",
+          "description": "Enable or disable the execution of the policy"
+        },
+        "allowedValues": [
+          "Audit",
+          "Deny",
+          "Disabled"
+        ],
+        "defaultValue": "Audit"
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {
+            "field": "type",
+            "equals": "Microsoft.Compute/virtualMachines"
+          },
+          {
+            "field": "Microsoft.Compute/virtualMachines/securityProfile.encryptionAtHost",
+            "notEquals": "true"
+          }
+        ]
+      },
+      "then": {
+        "effect": "[parameters('effect')]"
+      }
+    }
+  }
+}

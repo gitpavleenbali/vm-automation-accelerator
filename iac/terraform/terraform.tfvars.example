@@ -1,0 +1,251 @@
+# Example Terraform Variables File
+# Copy this file to terraform.tfvars and customize values
+# DO NOT commit terraform.tfvars to version control
+
+# ===========================
+# Environment Configuration
+# ===========================
+environment   = "prod"
+location_short = "weu"
+instance_id   = 1
+
+# ===========================
+# Resource Group
+# ===========================
+resource_group_name = "rg-app-prod-weu-001"
+
+# ===========================
+# Virtual Machine Configuration
+# ===========================
+vm_name = "vm-app-prod-001"
+vm_size = "Standard_D4s_v3"
+os_type = "Windows"
+
+# Marketplace Image (default: Windows Server 2022)
+use_custom_image = false
+publisher        = "MicrosoftWindowsServer"
+offer            = "WindowsServer"
+sku              = "2022-datacenter-azure-edition"
+image_version    = "latest"
+
+# Custom Image (uncomment if using custom image)
+# use_custom_image = true
+# source_image_id  = "/subscriptions/xxxx/resourceGroups/rg-images/providers/Microsoft.Compute/images/win2022-hardened-v1"
+
+# ===========================
+# Disk Configuration
+# ===========================
+os_disk_size_gb      = 127
+os_disk_storage_type = "Premium_LRS"
+os_disk_caching      = "ReadWrite"
+
+data_disks = [
+  {
+    name         = "datadisk-app-001"
+    size_gb      = 512
+    storage_type = "Premium_LRS"
+    caching      = "ReadOnly"
+    lun          = 0
+  },
+  {
+    name         = "datadisk-app-002"
+    size_gb      = 1024
+    storage_type = "Premium_LRS"
+    caching      = "ReadOnly"
+    lun          = 1
+  }
+]
+
+# ===========================
+# Network Configuration
+# ===========================
+vnet_name                     = "vnet-prod-weu-001"
+subnet_name                   = "snet-app-prod-weu-001"
+network_resource_group_name   = "rg-network-prod-weu-001"
+
+private_ip_address_allocation = "Dynamic"
+# private_ip_address          = "10.1.2.10"  # Uncomment for static IP
+
+enable_public_ip              = false
+enable_accelerated_networking = true
+enable_ip_forwarding          = false
+
+# NSG Configuration
+enable_ad_dns_rules = true
+custom_nsg_rules    = []
+
+# ===========================
+# Authentication (AVM Pattern - Recommended)
+# ===========================
+# AVM account_credentials pattern with auto-generation and Key Vault storage
+account_credentials = {
+  admin_credentials = {
+    username                           = "azureadmin"
+    # password will be auto-generated and stored in Key Vault
+    generate_admin_password_or_ssh_key = true
+    # For Linux VMs with SSH:
+    # ssh_keys = ["ssh-rsa AAAAB3NzaC1yc2E..."]
+    # disable_password_authentication = true
+  }
+  key_vault_configuration = {
+    resource_id = "/subscriptions/xxxx/resourceGroups/rg-security-prod-weu-001/providers/Microsoft.KeyVault/vaults/kv-Your Organization-prod-weu-001"
+    # Optional: Set expiration (defaults to 1 year)
+    # secret_expiration_date = "2026-12-31T23:59:59Z"
+  }
+}
+
+# DEPRECATED: Legacy pattern (backward compatibility)
+# admin_username = "azureadmin"
+# admin_password = null  # Auto-generated
+# key_vault_name = "kv-Your Organization-prod-weu-001"
+# key_vault_resource_group_name = "rg-security-prod-weu-001"
+
+# ===========================
+# Security Configuration (AVM Best Practices)
+# ===========================
+encryption_at_host_enabled    = true  # AVM best practice: encrypts all disks including temp
+enable_boot_diagnostics       = true
+boot_diagnostics_storage_uri  = "https://stYour Organizationprodweu001.blob.core.windows.net/"
+enable_secure_boot            = true
+enable_vtpm                   = true
+availability_zone             = "1"
+
+# Optional: Customer-Managed Key Encryption (requires Disk Encryption Set)
+# disk_encryption_set_id = "/subscriptions/xxxx/resourceGroups/rg-security/providers/Microsoft.Compute/diskEncryptionSets/des-Your Organization-prod"
+
+# ===========================
+# Managed Identity and RBAC (AVM Pattern)
+# ===========================
+enable_system_assigned_identity = true
+
+# Optional: User-Assigned Managed Identities
+# user_assigned_identity_ids = [
+#   "/subscriptions/xxxx/resourceGroups/rg-identity/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-Your Organization-app"
+# ]
+
+# Role Assignments TO the VM resource (grant others access to THIS VM)
+role_assignments = {
+  # Example: Grant VM Contributor to deployment service principal
+  # deployment_sp = {
+  #   principal_id               = "00000000-0000-0000-0000-000000000000"
+  #   role_definition_id_or_name = "Virtual Machine Contributor"
+  #   description                = "Allow CI/CD pipeline to manage this VM"
+  #   principal_type             = "ServicePrincipal"  # Required for Service Principals
+  # }
+}
+
+# Role Assignments FROM the VM's system managed identity (grant VM access to OTHER resources)
+role_assignments_system_managed_identity = {
+  # Example: Allow VM to read Key Vault secrets
+  keyvault_secrets = {
+    scope_resource_id          = "/subscriptions/xxxx/resourceGroups/rg-security-prod-weu-001/providers/Microsoft.KeyVault/vaults/kv-Your Organization-prod-weu-001"
+    role_definition_id_or_name = "Key Vault Secrets User"
+    description                = "Allow VM to read application secrets"
+    principal_type             = "ServicePrincipal"
+  }
+  # Example: Allow VM to read/write to Storage Account
+  # storage_contributor = {
+  #   scope_resource_id          = "/subscriptions/xxxx/resourceGroups/rg-storage/providers/Microsoft.Storage/storageAccounts/stYour Organizationprod"
+  #   role_definition_id_or_name = "Storage Blob Data Contributor"
+  #   description                = "Allow VM to access blob storage"
+  #   principal_type             = "ServicePrincipal"
+  # }
+}
+
+# ===========================
+# Domain Join (Windows only)
+# ===========================
+enable_domain_join    = true
+domain_name           = "Your Organization.corp"
+domain_ou_path        = "OU=Servers,OU=Azure,DC=Your Organization,DC=corp"
+domain_join_account   = "svc-domainjoin@Your Organization.corp"
+# domain_join_password = "STORED_IN_KEYVAULT"  # Fetched from Key Vault in pipeline
+
+# ===========================
+# Monitoring Configuration (AVM Pattern)
+# ===========================
+log_analytics_workspace_name        = "law-Your Organization-prod-weu-001"
+log_analytics_resource_group_name   = "rg-monitoring-prod-weu-001"
+
+enable_performance_monitoring = true
+enable_event_log_collection   = true
+enable_vm_insights            = true
+
+# AVM Telemetry (Optional - Phase 3)
+# Opt-in/opt-out of module usage analytics sent to Microsoft
+# Helps improve Azure Verified Modules based on usage patterns
+# No sensitive or customer data is collected
+enable_telemetry = true  # Set to false to disable telemetry
+
+# AVM Diagnostic Settings - Multi-destination support
+diagnostic_settings = {
+  primary = {
+    name                                = "vm-diagnostics-law"
+    log_analytics_workspace_resource_id = "/subscriptions/xxxx/resourceGroups/rg-monitoring-prod-weu-001/providers/Microsoft.OperationalInsights/workspaces/law-Your Organization-prod-weu-001"
+    log_groups                          = ["allLogs"]
+    metric_categories                   = ["AllMetrics"]
+  }
+  # Optional: Long-term storage retention
+  # longterm = {
+  #   name                        = "vm-diagnostics-storage"
+  #   storage_account_resource_id = "/subscriptions/xxxx/resourceGroups/rg-monitoring-prod-weu-001/providers/Microsoft.Storage/storageAccounts/stYour Organizationlogs"
+  #   log_groups                  = ["audit"]
+  #   metric_categories           = ["AllMetrics"]
+  # }
+  # Optional: Real-time streaming
+  # streaming = {
+  #   name                            = "vm-diagnostics-eventhub"
+  #   event_hub_authorization_rule_id = "/subscriptions/xxxx/resourceGroups/rg-monitoring/providers/Microsoft.EventHub/namespaces/eh-Your Organization/authorizationRules/RootManageSharedAccessKey"
+  #   event_hub_name                  = "vm-diagnostics"
+  #   log_groups                      = ["allLogs"]
+  #   metric_categories               = ["AllMetrics"]
+  # }
+}
+
+enable_nic_diagnostics = false
+
+# ===========================
+# Backup Configuration (AVM Pattern)
+# ===========================
+enable_backup                          = true
+recovery_vault_name                    = "rsv-Your Organization-prod-weu-001"
+recovery_vault_resource_group_name     = "rg-backup-prod-weu-001"
+backup_policy_id                       = "/subscriptions/xxxx/resourceGroups/rg-backup-prod-weu-001/providers/Microsoft.RecoveryServices/vaults/rsv-Your Organization-prod-weu-001/backupPolicies/DailyBackup30Days"
+
+# Optional: Selective disk backup (AVM pattern with disk LUN filtering)
+# backup_exclude_disk_luns = [1, 2]  # Exclude LUN 1 and 2 from backup (temp/cache disks)
+# backup_include_disk_luns = [0]     # Only backup LUN 0 (OS + critical data)
+# Note: Only one of exclude or include can be set
+
+# ===========================
+# Site Recovery (Optional)
+# ===========================
+enable_asr                        = true
+asr_target_resource_group_name    = "rg-app-prod-weu-dr-001"
+asr_target_location               = "northeurope"
+asr_recovery_vault_name           = "rsv-Your Organization-asr-prod-weu-001"
+asr_recovery_vault_resource_group = "rg-dr-prod-weu-001"
+asr_replication_policy_name       = "ReplicationPolicy24Hours"
+
+# ===========================
+# Hardening Configuration
+# ===========================
+hardening_script_url         = "https://stYour Organizationprodweu001.blob.core.windows.net/scripts/Apply-Your OrganizationHardening.ps1"
+hardening_script_name        = "Apply-Your OrganizationHardening.ps1"
+hardening_script_args        = "-Profile CISBenchmark -LogPath C:\\Temp\\hardening.log"
+scripts_storage_account_name = "stYour Organizationprodweu001"
+# scripts_storage_account_key = "STORED_IN_KEYVAULT"  # Fetched from Key Vault in pipeline
+
+# ===========================
+# Tags
+# ===========================
+tags = {
+  Application   = "ERP System"
+  CostCenter    = "CC-12345"
+  Owner         = "AppTeam@Your Organization.com"
+  DataClass     = "Confidential"
+  Compliance    = "GDPR,ISO27001"
+  BackupPolicy  = "Daily30Days"
+  MaintenanceWindow = "Sunday 02:00-06:00 UTC"
+  ServiceNowTicket  = "RITM0012345"
+}

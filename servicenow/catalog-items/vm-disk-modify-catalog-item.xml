@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sc_cat_item">
+    <sc_cat_item action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <availability>on_desktop</availability>
+        <category display_value="Cloud Services">azure_cloud_services</category>
+        <description><![CDATA[
+            <p>Request disk modifications for an existing Azure Virtual Machine.</p>
+            <p><strong>Supported Operations:</strong></p>
+            <ul>
+                <li>Add new data disk</li>
+                <li>Resize existing data disk</li>
+                <li>Delete data disk</li>
+            </ul>
+            <p><strong>Important:</strong> Disk resize/delete operations create automatic snapshots for rollback.</p>
+        ]]></description>
+        <name>Azure VM - Disk Modification</name>
+        <short_description>Add, resize, or delete data disks on Azure Virtual Machines</short_description>
+        <workflow display_value="VM Disk Modify Workflow">vm_disk_modify_workflow</workflow>
+        <flow_designer_flow display_value="">flow_vm_disk_modify</flow_designer_flow>
+        <sys_id>vm_disk_modify_catalog_item_001</sys_id>
+        <sys_created_on>2025-10-07 00:00:00</sys_created_on>
+    </sc_cat_item>
+    
+    <!-- VARIABLES -->
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="VM Name">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>vm_name</name>
+            <order>10</order>
+            <question_text>Virtual Machine Name</question_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Resource Group">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>resource_group</name>
+            <order>20</order>
+            <question_text>Resource Group Name</question_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Operation">
+            <active>true</active>
+            <default_value>add</default_value>
+            <mandatory>true</mandatory>
+            <name>operation</name>
+            <order>30</order>
+            <question_text>Disk Operation</question_text>
+            <type>8</type>
+            <choice_list>add,resize,delete</choice_list>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Disk Name">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>disk_name</name>
+            <order>40</order>
+            <question_text>Disk Name</question_text>
+            <help_text>For add: new disk name. For resize/delete: existing disk name</help_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Disk Size (GB)">
+            <active>true</active>
+            <default_value>256</default_value>
+            <mandatory>true</mandatory>
+            <name>disk_size_gb</name>
+            <order>50</order>
+            <question_text>Disk Size (GB)</question_text>
+            <type>2</type>
+            <min_value>1</min_value>
+            <max_value>32767</max_value>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Storage Type">
+            <active>true</active>
+            <default_value>Premium_LRS</default_value>
+            <mandatory>true</mandatory>
+            <name>storage_type</name>
+            <order>60</order>
+            <question_text>Storage Type</question_text>
+            <type>8</type>
+            <choice_list>Standard_LRS,StandardSSD_LRS,Premium_LRS,PremiumV2_LRS,UltraSSD_LRS</choice_list>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Business Justification">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>business_justification</name>
+            <order>70</order>
+            <question_text>Business Justification</question_text>
+            <type>6</type>
+            <max_length>1000</max_length>
+        </item_option_new>
+    </sc_cat_item_option>
+</record_update>

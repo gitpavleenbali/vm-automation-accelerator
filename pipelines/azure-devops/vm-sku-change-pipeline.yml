@@ -1,0 +1,608 @@
+# Azure DevOps Pipeline: VM SKU/Size Change
+# This pipeline automates VM resize operations with validation and approval
+# Triggered via ServiceNow catalog or manual execution
+
+trigger: none # Manual or ServiceNow-triggered only
+
+parameters:
+  - name: environment
+    displayName: 'Environment'
+    type: string
+    default: 'prod'
+    values:
+      - dev
+      - uat
+      - prod
+      
+  - name: vmName
+    displayName: 'VM Name'
+    type: string
+    
+  - name: resourceGroupName
+    displayName: 'Resource Group Name'
+    type: string
+    
+  - name: newVmSize
+    displayName: 'New VM Size (SKU)'
+    type: string
+    default: 'Standard_D4s_v3'
+    
+  - name: maintenanceWindow
+    displayName: 'Maintenance Window (optional)'
+    type: string
+    default: ''
+    
+  - name: serviceNowTicket
+    displayName: 'ServiceNow Ticket Number (CHG/RITM)'
+    type: string
+    default: ''
+    
+  - name: approverEmail
+    displayName: 'L2 Approver Email'
+    type: string
+    default: ''
+    
+  - name: validateOnly
+    displayName: 'Validation Only (no execution)'
+    type: boolean
+    default: false
+
+variables:
+  - name: azureServiceConnection
+    value: 'AzureServiceConnection-Prod'
+  - name: serviceNowApiUrl
+    value: 'https://Your Organization.service-now.com/api/now'
+
+stages:
+  # ============================================================================
+  # STAGE 1: PRE-CHANGE VALIDATION
+  # ============================================================================
+  - stage: PreChangeValidation
+    displayName: 'Pre-Change Validation'
+    jobs:
+      - job: ValidateChange
+        displayName: 'Validate VM Size Change'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Get Current VM Configuration'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_NAME="${{ parameters.vmName }}"
+                RG_NAME="${{ parameters.resourceGroupName }}"
+                
+                echo "Getting current VM configuration..."
+                
+                # Get current VM size
+                CURRENT_SIZE=$(az vm show --name "$VM_NAME" --resource-group "$RG_NAME" \
+                  --query "hardwareProfile.vmSize" -o tsv)
+                
+                if [ -z "$CURRENT_SIZE" ]; then
+                  echo "##vso[task.logissue type=error]VM $VM_NAME not found"
+                  exit 1
+                fi
+                
+                echo "Current VM Size: $CURRENT_SIZE"
+                echo "##vso[task.setvariable variable=currentVmSize]$CURRENT_SIZE"
+                
+                # Get VM location
+                VM_LOCATION=$(az vm show --name "$VM_NAME" --resource-group "$RG_NAME" \
+                  --query "location" -o tsv)
+                echo "##vso[task.setvariable variable=vmLocation]$VM_LOCATION"
+                
+                # Get availability zone (if any)
+                AVAILABILITY_ZONE=$(az vm show --name "$VM_NAME" --resource-group "$RG_NAME" \
+                  --query "zones[0]" -o tsv)
+                echo "##vso[task.setvariable variable=availabilityZone]$AVAILABILITY_ZONE"
+                
+                # Check if new size is same as current
+                if [ "$CURRENT_SIZE" == "${{ parameters.newVmSize }}" ]; then
+                  echo "##vso[task.logissue type=warning]New size is same as current size"
+                fi
+                
+          - task: AzureCLI@2
+            displayName: 'Validate New VM Size Availability'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_LOCATION="$(vmLocation)"
+                NEW_SIZE="${{ parameters.newVmSize }}"
+                AZ_ZONE="$(availabilityZone)"
+                
+                echo "Validating VM size availability..."
+                echo "Location: $VM_LOCATION"
+                echo "New Size: $NEW_SIZE"
+                echo "Availability Zone: $AZ_ZONE"
+                
+                # Check if size is available in the location
+                if [ -z "$AZ_ZONE" ]; then
+                  # No availability zone
+                  SIZE_AVAILABLE=$(az vm list-sizes --location "$VM_LOCATION" \
+                    --query "[?name=='$NEW_SIZE'].name" -o tsv)
+                else
+                  # With availability zone
+                  SIZE_AVAILABLE=$(az vm list-skus --location "$VM_LOCATION" \
+                    --size "$NEW_SIZE" --zone --query "[].name" -o tsv | grep -w "$NEW_SIZE" || echo "")
+                fi
+                
+                if [ -z "$SIZE_AVAILABLE" ]; then
+                  echo "##vso[task.logissue type=error]VM size $NEW_SIZE not available in $VM_LOCATION"
+                  exit 1
+                fi
+                
+                echo "VM size is available"
+                
+          - task: AzureCLI@2
+            displayName: 'Get VM Size Specifications'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_LOCATION="$(vmLocation)"
+                CURRENT_SIZE="$(currentVmSize)"
+                NEW_SIZE="${{ parameters.newVmSize }}"
+                
+                echo "Getting VM size specifications..."
+                
+                # Get current size specs
+                CURRENT_SPECS=$(az vm list-sizes --location "$VM_LOCATION" \
+                  --query "[?name=='$CURRENT_SIZE'] | [0].{cores:numberOfCores, memoryMB:memoryInMB, maxDataDisks:maxDataDiskCount}" -o json)
+                
+                # Get new size specs
+                NEW_SPECS=$(az vm list-sizes --location "$VM_LOCATION" \
+                  --query "[?name=='$NEW_SIZE'] | [0].{cores:numberOfCores, memoryMB:memoryInMB, maxDataDisks:maxDataDiskCount}" -o json)
+                
+                echo "Current Size Specs:"
+                echo "$CURRENT_SPECS" | jq .
+                
+                echo "New Size Specs:"
+                echo "$NEW_SPECS" | jq .
+                
+                # Extract values
+                CURRENT_CORES=$(echo "$CURRENT_SPECS" | jq -r '.cores')
+                NEW_CORES=$(echo "$NEW_SPECS" | jq -r '.cores')
+                CURRENT_MEMORY=$(echo "$CURRENT_SPECS" | jq -r '.memoryMB')
+                NEW_MEMORY=$(echo "$NEW_SPECS" | jq -r '.memoryMB')
+                CURRENT_MAX_DISKS=$(echo "$CURRENT_SPECS" | jq -r '.maxDataDisks')
+                NEW_MAX_DISKS=$(echo "$NEW_SPECS" | jq -r '.maxDataDisks')
+                
+                # Set variables
+                echo "##vso[task.setvariable variable=currentCores]$CURRENT_CORES"
+                echo "##vso[task.setvariable variable=newCores]$NEW_CORES"
+                echo "##vso[task.setvariable variable=currentMemoryMB]$CURRENT_MEMORY"
+                echo "##vso[task.setvariable variable=newMemoryMB]$NEW_MEMORY"
+                
+                # Check if downgrade
+                if [ $NEW_CORES -lt $CURRENT_CORES ] || [ $NEW_MEMORY -lt $CURRENT_MEMORY ]; then
+                  echo "##vso[task.logissue type=warning]This is a DOWNGRADE operation"
+                  echo "##vso[task.setvariable variable=isDowngrade]true"
+                else
+                  echo "##vso[task.setvariable variable=isDowngrade]false"
+                fi
+                
+                # Check disk compatibility
+                CURRENT_DISK_COUNT=$(az vm show --name "${{ parameters.vmName }}" \
+                  --resource-group "${{ parameters.resourceGroupName }}" \
+                  --query "length(storageProfile.dataDisks)" -o tsv)
+                
+                if [ $CURRENT_DISK_COUNT -gt $NEW_MAX_DISKS ]; then
+                  echo "##vso[task.logissue type=error]VM has $CURRENT_DISK_COUNT disks, new size only supports $NEW_MAX_DISKS"
+                  exit 1
+                fi
+                
+          - task: AzurePowerShell@5
+            displayName: 'Calculate Cost Impact'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'inlineScript'
+              inline: |
+                $currentSize = "$(currentVmSize)"
+                $newSize = "${{ parameters.newVmSize }}"
+                $location = "$(vmLocation)"
+                
+                Write-Host "Calculating cost impact..."
+                Write-Host "Current Size: $currentSize"
+                Write-Host "New Size: $newSize"
+                
+                # Approximate monthly costs (USD) for common VM sizes in West Europe
+                # NOTE: Replace with actual Azure Pricing API calls
+                $pricingTable = @{
+                  "Standard_B2s"      = 30
+                  "Standard_B2ms"     = 60
+                  "Standard_D2s_v3"   = 96
+                  "Standard_D4s_v3"   = 192
+                  "Standard_D8s_v3"   = 384
+                  "Standard_D16s_v3"  = 768
+                  "Standard_E2s_v3"   = 109
+                  "Standard_E4s_v3"   = 219
+                  "Standard_E8s_v3"   = 438
+                  "Standard_E16s_v3"  = 876
+                  "Standard_F2s_v2"   = 85
+                  "Standard_F4s_v2"   = 169
+                  "Standard_F8s_v2"   = 338
+                }
+                
+                $currentCost = if ($pricingTable.ContainsKey($currentSize)) { $pricingTable[$currentSize] } else { 150 }
+                $newCost = if ($pricingTable.ContainsKey($newSize)) { $pricingTable[$newSize] } else { 150 }
+                $costDelta = $newCost - $currentCost
+                $costPercentChange = if ($currentCost -gt 0) { [math]::Round(($costDelta / $currentCost) * 100, 2) } else { 0 }
+                
+                Write-Host "Current Monthly Cost: `$$currentCost USD"
+                Write-Host "New Monthly Cost: `$$newCost USD"
+                Write-Host "Cost Delta: `$$costDelta USD ($costPercentChange%)"
+                
+                # Set output variables
+                Write-Host "##vso[task.setvariable variable=currentMonthlyCost]$currentCost"
+                Write-Host "##vso[task.setvariable variable=newMonthlyCost]$newCost"
+                Write-Host "##vso[task.setvariable variable=costDelta]$costDelta"
+                Write-Host "##vso[task.setvariable variable=costPercentChange]$costPercentChange"
+                
+                # Create cost report
+                $costReport = @{
+                  CurrentSize = $currentSize
+                  NewSize = $newSize
+                  CurrentCores = $(currentCores)
+                  NewCores = $(newCores)
+                  CurrentMemoryMB = $(currentMemoryMB)
+                  NewMemoryMB = $(newMemoryMB)
+                  CurrentMonthlyCost = $currentCost
+                  NewMonthlyCost = $newCost
+                  CostDelta = $costDelta
+                  CostPercentChange = $costPercentChange
+                  IsDowngrade = "$(isDowngrade)"
+                } | ConvertTo-Json -Depth 10
+                
+                $costReport | Out-File -FilePath "$(Build.ArtifactStagingDirectory)/sku-change-analysis.json"
+              azurePowerShellVersion: 'LatestVersion'
+              
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Analysis Report'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/sku-change-analysis.json'
+              artifact: 'sku-change-analysis'
+
+      - job: CreateRollbackPlan
+        displayName: 'Create Rollback Plan'
+        dependsOn: ValidateChange
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: 'Generate Rollback Script'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $rollbackScript = @"
+                # Rollback script for VM ${{ parameters.vmName }}
+                # Original Size: $(currentVmSize)
+                # New Size: ${{ parameters.newVmSize }}
+                # Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                
+                `$vmName = "${{ parameters.vmName }}"
+                `$resourceGroup = "${{ parameters.resourceGroupName }}"
+                `$originalSize = "$(currentVmSize)"
+                
+                Write-Host "Rolling back VM `$vmName to original size: `$originalSize"
+                
+                # Stop VM
+                Write-Host "Stopping VM..."
+                az vm deallocate --name `$vmName --resource-group `$resourceGroup
+                
+                # Resize back to original
+                Write-Host "Resizing VM..."
+                az vm resize --name `$vmName --resource-group `$resourceGroup --size `$originalSize
+                
+                # Start VM
+                Write-Host "Starting VM..."
+                az vm start --name `$vmName --resource-group `$resourceGroup
+                
+                Write-Host "Rollback completed successfully"
+                "@
+                
+                $rollbackScript | Out-File -FilePath "$(Build.ArtifactStagingDirectory)/rollback-script.ps1"
+                
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Rollback Script'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/rollback-script.ps1'
+              artifact: 'rollback-script'
+
+  # ============================================================================
+  # STAGE 2: APPROVAL
+  # ============================================================================
+  - stage: Approval
+    displayName: 'Change Approval'
+    dependsOn: PreChangeValidation
+    condition: and(succeeded(), eq('${{ parameters.validateOnly }}', false))
+    jobs:
+      - job: ManualApproval
+        displayName: 'L2 Approval Required'
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve VM Size Change'
+            inputs:
+              notifyUsers: '${{ parameters.approverEmail }}'
+              instructions: |
+                Please review and approve the VM size change:
+                
+                **VM Details:**
+                - VM Name: ${{ parameters.vmName }}
+                - Resource Group: ${{ parameters.resourceGroupName }}
+                - Environment: ${{ parameters.environment }}
+                
+                **Change Details:**
+                - Current Size: $(currentVmSize) ($(currentCores) cores, $(currentMemoryMB) MB RAM)
+                - New Size: ${{ parameters.newVmSize }} ($(newCores) cores, $(newMemoryMB) MB RAM)
+                - Change Type: $(if (eq(variables['isDowngrade'], 'true')) { 'DOWNGRADE ⚠️' } else { 'UPGRADE' })
+                
+                **Cost Impact:**
+                - Current Monthly Cost: $$(currentMonthlyCost) USD
+                - New Monthly Cost: $$(newMonthlyCost) USD
+                - Cost Delta: $$(costDelta) USD ($(costPercentChange)%)
+                
+                **ServiceNow Ticket:** ${{ parameters.serviceNowTicket }}
+                **Maintenance Window:** ${{ parameters.maintenanceWindow }}
+                
+                ⚠️ **WARNING:** This operation requires VM downtime (approximately 5-10 minutes)
+                
+                Review the SKU change analysis artifact for detailed specifications.
+              onTimeout: 'reject'
+
+  # ============================================================================
+  # STAGE 3: PRE-CHANGE BACKUP
+  # ============================================================================
+  - stage: PreChangeBackup
+    displayName: 'Pre-Change Backup'
+    dependsOn: Approval
+    condition: succeeded()
+    jobs:
+      - job: CreateBackup
+        displayName: 'Create VM Snapshot'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Snapshot OS Disk'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_NAME="${{ parameters.vmName }}"
+                RG_NAME="${{ parameters.resourceGroupName }}"
+                TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                
+                echo "Creating snapshot before size change..."
+                
+                # Get OS disk name
+                OS_DISK_NAME=$(az vm show --name "$VM_NAME" --resource-group "$RG_NAME" \
+                  --query "storageProfile.osDisk.name" -o tsv)
+                
+                echo "OS Disk: $OS_DISK_NAME"
+                
+                # Create snapshot
+                SNAPSHOT_NAME="${OS_DISK_NAME}-sku-change-${TIMESTAMP}"
+                
+                az snapshot create \
+                  --name "$SNAPSHOT_NAME" \
+                  --resource-group "$RG_NAME" \
+                  --source "$OS_DISK_NAME" \
+                  --tags "Operation=SKUChange" "OriginalSize=$(currentVmSize)" "NewSize=${{ parameters.newVmSize }}" "Ticket=${{ parameters.serviceNowTicket }}"
+                
+                echo "Snapshot created: $SNAPSHOT_NAME"
+                echo "##vso[task.setvariable variable=osSnapshotName]$SNAPSHOT_NAME"
+
+  # ============================================================================
+  # STAGE 4: EXECUTION
+  # ============================================================================
+  - stage: Execution
+    displayName: 'Execute Size Change'
+    dependsOn: PreChangeBackup
+    condition: succeeded()
+    jobs:
+      - job: ResizeVM
+        displayName: 'Resize VM'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Record Start Time'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                START_TIME=$(date +%s)
+                echo "##vso[task.setvariable variable=changeStartTime]$START_TIME"
+                echo "Change started at: $(date -u)"
+                
+          - task: AzureCLI@2
+            displayName: 'Stop VM (Deallocate)'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_NAME="${{ parameters.vmName }}"
+                RG_NAME="${{ parameters.resourceGroupName }}"
+                
+                echo "Stopping (deallocating) VM..."
+                
+                az vm deallocate --name "$VM_NAME" --resource-group "$RG_NAME"
+                
+                echo "VM deallocated successfully"
+                
+          - task: AzureCLI@2
+            displayName: 'Resize VM'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_NAME="${{ parameters.vmName }}"
+                RG_NAME="${{ parameters.resourceGroupName }}"
+                NEW_SIZE="${{ parameters.newVmSize }}"
+                
+                echo "Resizing VM to: $NEW_SIZE"
+                
+                az vm resize \
+                  --name "$VM_NAME" \
+                  --resource-group "$RG_NAME" \
+                  --size "$NEW_SIZE"
+                
+                echo "VM resized successfully"
+                
+          - task: AzureCLI@2
+            displayName: 'Start VM'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_NAME="${{ parameters.vmName }}"
+                RG_NAME="${{ parameters.resourceGroupName }}"
+                
+                echo "Starting VM..."
+                
+                az vm start --name "$VM_NAME" --resource-group "$RG_NAME"
+                
+                echo "VM started successfully"
+                
+          - task: AzureCLI@2
+            displayName: 'Record End Time & Calculate Downtime'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                END_TIME=$(date +%s)
+                START_TIME=$(changeStartTime)
+                DOWNTIME=$((END_TIME - START_TIME))
+                DOWNTIME_MINUTES=$((DOWNTIME / 60))
+                
+                echo "Change completed at: $(date -u)"
+                echo "Total downtime: ${DOWNTIME} seconds (${DOWNTIME_MINUTES} minutes)"
+                echo "##vso[task.setvariable variable=totalDowntime]$DOWNTIME"
+
+  # ============================================================================
+  # STAGE 5: POST-CHANGE VALIDATION
+  # ============================================================================
+  - stage: PostChangeValidation
+    displayName: 'Post-Change Validation'
+    dependsOn: Execution
+    condition: succeeded()
+    jobs:
+      - job: ValidateResize
+        displayName: 'Validate Size Change'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: AzureCLI@2
+            displayName: 'Verify New VM Size'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                VM_NAME="${{ parameters.vmName }}"
+                RG_NAME="${{ parameters.resourceGroupName }}"
+                EXPECTED_SIZE="${{ parameters.newVmSize }}"
+                
+                echo "Verifying VM size change..."
+                
+                # Get current VM size
+                ACTUAL_SIZE=$(az vm show --name "$VM_NAME" --resource-group "$RG_NAME" \
+                  --query "hardwareProfile.vmSize" -o tsv)
+                
+                echo "Expected Size: $EXPECTED_SIZE"
+                echo "Actual Size: $ACTUAL_SIZE"
+                
+                if [ "$ACTUAL_SIZE" != "$EXPECTED_SIZE" ]; then
+                  echo "##vso[task.logissue type=error]Size mismatch! Expected $EXPECTED_SIZE, got $ACTUAL_SIZE"
+                  exit 1
+                fi
+                
+                # Verify VM is running
+                POWER_STATE=$(az vm get-instance-view --name "$VM_NAME" \
+                  --resource-group "$RG_NAME" \
+                  --query "instanceView.statuses[?starts_with(code, 'PowerState/')].displayStatus" -o tsv)
+                
+                echo "VM Power State: $POWER_STATE"
+                
+                if [[ "$POWER_STATE" != *"running"* ]]; then
+                  echo "##vso[task.logissue type=error]VM is not running"
+                  exit 1
+                fi
+                
+                echo "✅ VM size change verified successfully"
+
+  # ============================================================================
+  # STAGE 6: NOTIFICATION
+  # ============================================================================
+  - stage: Notification
+    displayName: 'Notification & Documentation'
+    dependsOn: PostChangeValidation
+    condition: always()
+    jobs:
+      - job: UpdateDocumentation
+        displayName: 'Update Change Records'
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - task: PowerShell@2
+            displayName: 'Create Change Report'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $status = if ($env:AGENT_JOBSTATUS -eq "Succeeded") { "Success" } else { "Failed" }
+                
+                $changeReport = @{
+                  VMName = "${{ parameters.vmName }}"
+                  ResourceGroup = "${{ parameters.resourceGroupName }}"
+                  Environment = "${{ parameters.environment }}"
+                  OriginalSize = "$(currentVmSize)"
+                  NewSize = "${{ parameters.newVmSize }}"
+                  ChangeType = if ("$(isDowngrade)" -eq "true") { "Downgrade" } else { "Upgrade" }
+                  ServiceNowTicket = "${{ parameters.serviceNowTicket }}"
+                  Status = $status
+                  DowntimeSeconds = $(totalDowntime)
+                  CostDelta = $(costDelta)
+                  ExecutedAt = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+                  ExecutedBy = "$env:BUILD_REQUESTEDFOR"
+                  SnapshotName = "$(osSnapshotName)"
+                } | ConvertTo-Json -Depth 10
+                
+                Write-Host "Change Report:"
+                Write-Host $changeReport
+                
+                $changeReport | Out-File -FilePath "$(Build.ArtifactStagingDirectory)/change-report.json"
+                
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Change Report'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/change-report.json'
+              artifact: 'change-report'
+              
+          - task: PowerShell@2
+            displayName: 'Update ServiceNow Ticket'
+            condition: ne('${{ parameters.serviceNowTicket }}', '')
+            inputs:
+              targetType: 'inline'
+              script: |
+                $ticket = "${{ parameters.serviceNowTicket }}"
+                $status = if ($env:AGENT_JOBSTATUS -eq "Succeeded") { "Completed" } else { "Failed" }
+                
+                Write-Host "Updating ServiceNow ticket $ticket with status: $status"
+                
+                # TODO: Add actual ServiceNow API call
+                # PATCH $(serviceNowApiUrl)/table/change_request/$ticket
+                
+                Write-Host "ServiceNow ticket updated"

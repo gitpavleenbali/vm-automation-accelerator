@@ -1,0 +1,129 @@
+{
+  "properties": {
+    "displayName": "Enterprise - VM Compliance Policy Initiative",
+    "policyType": "Custom",
+    "description": "This initiative bundles all VM compliance policies for centralized assignment.",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Compute",
+      "source": "Your Organization Cloud Governance"
+    },
+    "parameters": {
+      "encryptionEffect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect for Encryption Policy"
+        },
+        "allowedValues": [
+          "Audit",
+          "Deny",
+          "Disabled"
+        ],
+        "defaultValue": "Audit"
+      },
+      "taggingEffect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect for Tagging Policy"
+        },
+        "allowedValues": [
+          "Audit",
+          "Deny",
+          "Disabled"
+        ],
+        "defaultValue": "Audit"
+      },
+      "namingEffect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect for Naming Policy"
+        },
+        "allowedValues": [
+          "Audit",
+          "Deny",
+          "Disabled"
+        ],
+        "defaultValue": "Audit"
+      },
+      "backupEffect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect for Backup Policy"
+        },
+        "allowedValues": [
+          "AuditIfNotExists",
+          "Disabled"
+        ],
+        "defaultValue": "AuditIfNotExists"
+      },
+      "skuEffect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect for SKU Restriction Policy"
+        },
+        "allowedValues": [
+          "Audit",
+          "Deny",
+          "Disabled"
+        ],
+        "defaultValue": "Audit"
+      },
+      "vaultLocation": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Recovery Services Vault Location"
+        }
+      }
+    },
+    "policyDefinitions": [
+      {
+        "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/Your Organization/providers/Microsoft.Authorization/policyDefinitions/require-encryption-at-host",
+        "parameters": {
+          "effect": {
+            "value": "[parameters('encryptionEffect')]"
+          }
+        },
+        "policyDefinitionReferenceId": "requireEncryptionAtHost"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/Your Organization/providers/Microsoft.Authorization/policyDefinitions/require-mandatory-tags",
+        "parameters": {
+          "effect": {
+            "value": "[parameters('taggingEffect')]"
+          }
+        },
+        "policyDefinitionReferenceId": "requireMandatoryTags"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/Your Organization/providers/Microsoft.Authorization/policyDefinitions/enforce-naming-convention",
+        "parameters": {
+          "effect": {
+            "value": "[parameters('namingEffect')]"
+          }
+        },
+        "policyDefinitionReferenceId": "enforceNamingConvention"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/Your Organization/providers/Microsoft.Authorization/policyDefinitions/require-azure-backup",
+        "parameters": {
+          "effect": {
+            "value": "[parameters('backupEffect')]"
+          },
+          "vaultLocation": {
+            "value": "[parameters('vaultLocation')]"
+          }
+        },
+        "policyDefinitionReferenceId": "requireAzureBackup"
+      },
+      {
+        "policyDefinitionId": "/providers/Microsoft.Management/managementGroups/Your Organization/providers/Microsoft.Authorization/policyDefinitions/restrict-vm-sku-sizes",
+        "parameters": {
+          "effect": {
+            "value": "[parameters('skuEffect')]"
+          }
+        },
+        "policyDefinitionReferenceId": "restrictVmSkuSizes"
+      }
+    ]
+  }
+}

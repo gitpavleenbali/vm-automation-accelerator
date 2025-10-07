@@ -1,0 +1,74 @@
+{
+  "properties": {
+    "displayName": "Enterprise - Require mandatory tags on VMs",
+    "policyType": "Custom",
+    "mode": "Indexed",
+    "description": "This policy requires specific tags (Environment, CostCenter, Owner, Application) on all virtual machines.",
+    "metadata": {
+      "version": "1.0.0",
+      "category": "Tags",
+      "source": "Your Organization Cloud Governance"
+    },
+    "parameters": {
+      "effect": {
+        "type": "String",
+        "metadata": {
+          "displayName": "Effect",
+          "description": "Enable or disable the execution of the policy"
+        },
+        "allowedValues": [
+          "Audit",
+          "Deny",
+          "Disabled"
+        ],
+        "defaultValue": "Audit"
+      },
+      "requiredTags": {
+        "type": "Array",
+        "metadata": {
+          "displayName": "Required Tag Names",
+          "description": "List of required tag names"
+        },
+        "defaultValue": [
+          "Environment",
+          "CostCenter",
+          "Owner",
+          "Application"
+        ]
+      }
+    },
+    "policyRule": {
+      "if": {
+        "allOf": [
+          {
+            "field": "type",
+            "equals": "Microsoft.Compute/virtualMachines"
+          },
+          {
+            "anyOf": [
+              {
+                "field": "[concat('tags[', parameters('requiredTags')[0], ']')]",
+                "exists": "false"
+              },
+              {
+                "field": "[concat('tags[', parameters('requiredTags')[1], ']')]",
+                "exists": "false"
+              },
+              {
+                "field": "[concat('tags[', parameters('requiredTags')[2], ']')]",
+                "exists": "false"
+              },
+              {
+                "field": "[concat('tags[', parameters('requiredTags')[3], ']')]",
+                "exists": "false"
+              }
+            ]
+          }
+        ]
+      },
+      "then": {
+        "effect": "[parameters('effect')]"
+      }
+    }
+  }
+}

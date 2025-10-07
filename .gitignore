@@ -1,0 +1,107 @@
+# Terraform .gitignore
+
+# Local .terraform directories
+**/.terraform/*
+
+# .tfstate files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Exclude all .tfvars files, which are likely to contain sensitive data
+*.tfvars
+*.tfvars.json
+
+# Ignore override files as they are usually used to override resources locally
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Ignore transient lock info files created by terraform apply
+.terraform.tfstate.lock.info
+
+# Include override files you do wish to add to version control using negated pattern
+# !example_override.tf
+
+# Ignore CLI configuration files
+.terraformrc
+terraform.rc
+
+# Terraform plan files
+*.tfplan
+tfplan
+*.tfplan.*
+
+# Terraform lock file (optional - some teams commit this)
+# Uncomment if you want to version-lock provider versions
+# .terraform.lock.hcl
+
+# Ignore backend configuration files with credentials
+# backend-config/*.hcl  # Uncomment if these contain sensitive data
+
+# Sensitive output files
+terraform-outputs.json
+outputs.json
+
+# Backup files
+*.backup
+*.bak
+*.orig
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python (for helper scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+
+# PowerShell
+*.ps1xml
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Azure DevOps artifacts
+.pipeline/
+artifacts/
+
+# Cost forecast and validation outputs
+cost-forecast.json
+quota-validation.json
+validation-results.json
+
+# ServiceNow integration temporary files
+servicenow-*.json
+
+# Checkov security scan results
+checkov-report.xml
+checkov-report.json
+
+# Terraform graph outputs
+graph.svg
+graph.png
+
+# Internal documentation (local knowledge only, not for public release)
+AUDIT-REPORT.md
+RELEASE-CHECKLIST.md
