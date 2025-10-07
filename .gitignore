@@ -105,3 +105,4 @@ graph.png
 # Internal documentation (local knowledge only, not for public release)
 AUDIT-REPORT.md
 RELEASE-CHECKLIST.md
+MULTI-ENVIRONMENT-SUPPORT.md
