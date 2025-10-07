@@ -353,17 +353,17 @@ Microsoft
 
 ## 🗺️ Roadmap
 
-### Phase 1: MVP (Current)
+### Phase 1: MVP (Completed ✅)
 - ✅ Core VM deployment automation
 - ✅ ServiceNow catalog integration
 - ✅ Basic governance and compliance
 - ✅ Backup and monitoring
 
-### Phase 2: Enhancements (Planned)
-- 🔲 Disk modification automation
-- 🔲 VM SKU change pipeline
-- 🔲 VM restore automation
-- 🔲 Advanced cost optimization
+### Phase 2: Enhancements (Completed ✅)
+- ✅ Disk modification automation
+- ✅ VM SKU change pipeline
+- ✅ VM restore automation
+- ✅ Advanced cost optimization
 
 ### Phase 3: Advanced Features (Future)
 - 🔲 Multi-cloud support (AWS, GCP)
