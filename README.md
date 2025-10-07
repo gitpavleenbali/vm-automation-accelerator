@@ -384,10 +384,16 @@ For issues, questions, or feature requests:
 
 ---
 
+## � Author
+
+**Pavleen Bali**  
+Cloud Solution Architect - Cloud and AI Platform  
+Microsoft
+
+---
+
 ## 🙏 Acknowledgments
 
-- **Microsoft Cloud Solution Architects**: Pavleen Bali, Arinze, Barry, Sunny
-- **Cloud Infrastructure Team**: Ajith, Hinesh
 - **Microsoft Enterprise-Scale Landing Zones**: [aka.ms/alz](https://aka.ms/alz)
 
 ---
