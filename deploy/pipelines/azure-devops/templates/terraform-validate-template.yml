@@ -1,0 +1,286 @@
+# Azure DevOps Pipeline Template: Terraform Validation
+# Reusable template for validating Terraform configurations
+# Includes: format check, validation, security scanning (Checkov), and plan generation
+
+parameters:
+  - name: terraformDirectory
+    type: string
+    displayName: 'Path to Terraform directory (relative to repo root)'
+  
+  - name: environment
+    type: string
+    displayName: 'Target environment (dev, uat, prod)'
+    default: 'dev'
+  
+  - name: azureServiceConnection
+    type: string
+    displayName: 'Azure service connection name'
+  
+  - name: backendConfig
+    type: string
+    displayName: 'Backend configuration file (relative path)'
+    default: ''
+  
+  - name: tfvarsFile
+    type: string
+    displayName: 'Variables file (relative path)'
+    default: ''
+  
+  - name: runCheckov
+    type: boolean
+    displayName: 'Run Checkov security scan'
+    default: true
+  
+  - name: publishPlan
+    type: boolean
+    displayName: 'Publish Terraform plan as artifact'
+    default: true
+
+steps:
+  # ========================================
+  # Step 1: Install Terraform
+  # ========================================
+  - task: TerraformInstaller@0
+    displayName: 'Install Terraform'
+    inputs:
+      terraformVersion: '1.5.7'
+
+  # ========================================
+  # Step 2: Terraform Format Check
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Terraform Format Check'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.terraformDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Checking Terraform formatting"
+        echo "=============================================="
+        
+        if terraform fmt -check -recursive; then
+          echo "✅ All Terraform files are properly formatted"
+        else
+          echo "##vso[task.logissue type=warning]Some Terraform files are not formatted correctly"
+          echo "Run 'terraform fmt -recursive' locally to fix formatting"
+          
+          # Show which files need formatting
+          echo ""
+          echo "Files that need formatting:"
+          terraform fmt -check -recursive -list=true || true
+        fi
+
+  # ========================================
+  # Step 3: Terraform Init
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Terraform Init'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.terraformDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Initializing Terraform"
+        echo "=============================================="
+        
+        # Build init command
+        INIT_CMD="terraform init -upgrade"
+        
+        # Add backend config if provided
+        if [ -n "${{ parameters.backendConfig }}" ]; then
+          echo "Using backend config: ${{ parameters.backendConfig }}"
+          INIT_CMD="$INIT_CMD -backend-config=${{ parameters.backendConfig }}"
+        fi
+        
+        # Execute init
+        eval "$INIT_CMD"
+        
+        echo "✅ Terraform initialized successfully"
+
+  # ========================================
+  # Step 4: Terraform Validate
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Terraform Validate'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.terraformDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Validating Terraform configuration"
+        echo "=============================================="
+        
+        terraform validate -json > "$(Build.ArtifactStagingDirectory)/terraform-validate.json"
+        
+        if terraform validate; then
+          echo "✅ Terraform configuration is valid"
+        else
+          echo "##vso[task.logissue type=error]Terraform validation failed"
+          exit 1
+        fi
+
+  # ========================================
+  # Step 5: Security Scan with Checkov
+  # ========================================
+  - task: Bash@3
+    displayName: 'Security Scan with Checkov'
+    condition: and(succeeded(), eq(${{ parameters.runCheckov }}, true))
+    inputs:
+      targetType: 'inline'
+      workingDirectory: ${{ parameters.terraformDirectory }}
+      script: |
+        set -e
+        
+        echo "=============================================="
+        echo "Running Checkov security scan"
+        echo "=============================================="
+        
+        # Install Checkov if not already installed
+        if ! command -v checkov &> /dev/null; then
+          echo "Installing Checkov..."
+          pip install checkov
+        fi
+        
+        # Run Checkov scan
+        checkov --directory . \
+          --framework terraform \
+          --output cli \
+          --output junitxml \
+          --output-file-path "$(Build.ArtifactStagingDirectory)" \
+          --soft-fail || {
+          echo "##vso[task.logissue type=warning]Checkov found security issues (soft-fail enabled)"
+        }
+        
+        echo "✅ Security scan completed"
+    continueOnError: true
+
+  # ========================================
+  # Step 6: Publish Checkov Results
+  # ========================================
+  - task: PublishTestResults@2
+    displayName: 'Publish Checkov Results'
+    condition: and(always(), eq(${{ parameters.runCheckov }}, true))
+    inputs:
+      testResultsFormat: 'JUnit'
+      testResultsFiles: '$(Build.ArtifactStagingDirectory)/results_junitxml.xml'
+      testRunTitle: 'Checkov Security Scan - ${{ parameters.environment }}'
+      failTaskOnFailedTests: false
+
+  # ========================================
+  # Step 7: Terraform Plan
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Terraform Plan'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.terraformDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Generating Terraform plan"
+        echo "=============================================="
+        
+        # Build plan command
+        PLAN_CMD="terraform plan -out=$(Build.ArtifactStagingDirectory)/tfplan"
+        
+        # Add tfvars file if provided
+        if [ -n "${{ parameters.tfvarsFile }}" ]; then
+          if [ -f "${{ parameters.tfvarsFile }}" ]; then
+            echo "Using variables file: ${{ parameters.tfvarsFile }}"
+            PLAN_CMD="$PLAN_CMD -var-file=${{ parameters.tfvarsFile }}"
+          else
+            echo "##vso[task.logissue type=warning]Variables file not found: ${{ parameters.tfvarsFile }}"
+          fi
+        fi
+        
+        # Add detailed exit code to detect changes
+        PLAN_CMD="$PLAN_CMD -detailed-exitcode"
+        
+        # Execute plan
+        eval "$PLAN_CMD" || PLAN_EXIT_CODE=$?
+        
+        if [ -z "${PLAN_EXIT_CODE}" ] || [ "${PLAN_EXIT_CODE}" -eq 0 ]; then
+          echo "ℹ️ No changes detected"
+          echo "##vso[task.setvariable variable=terraformChanges;isOutput=true]false"
+        elif [ "${PLAN_EXIT_CODE}" -eq 2 ]; then
+          echo "✅ Changes detected - plan generated successfully"
+          echo "##vso[task.setvariable variable=terraformChanges;isOutput=true]true"
+        else
+          echo "##vso[task.logissue type=error]Terraform plan failed with exit code: ${PLAN_EXIT_CODE}"
+          exit 1
+        fi
+    name: planStep
+
+  # ========================================
+  # Step 8: Generate Human-Readable Plan
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Generate Plan Summary'
+    condition: succeeded()
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.terraformDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Generating plan summary"
+        echo "=============================================="
+        
+        # Generate human-readable plan
+        terraform show -no-color "$(Build.ArtifactStagingDirectory)/tfplan" > "$(Build.ArtifactStagingDirectory)/tfplan.txt"
+        
+        # Generate JSON plan for programmatic access
+        terraform show -json "$(Build.ArtifactStagingDirectory)/tfplan" > "$(Build.ArtifactStagingDirectory)/tfplan.json"
+        
+        # Extract resource changes summary
+        echo "=== Terraform Plan Summary ===" | tee "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        echo "" | tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        
+        # Count changes by action
+        CREATE_COUNT=$(terraform show -json "$(Build.ArtifactStagingDirectory)/tfplan" | jq '[.resource_changes[]? | select(.change.actions[] == "create")] | length')
+        UPDATE_COUNT=$(terraform show -json "$(Build.ArtifactStagingDirectory)/tfplan" | jq '[.resource_changes[]? | select(.change.actions[] == "update")] | length')
+        DELETE_COUNT=$(terraform show -json "$(Build.ArtifactStagingDirectory)/tfplan" | jq '[.resource_changes[]? | select(.change.actions[] == "delete")] | length')
+        
+        echo "Resource Changes:" | tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        echo "  Create: $CREATE_COUNT" | tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        echo "  Update: $UPDATE_COUNT" | tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        echo "  Delete: $DELETE_COUNT" | tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        echo "" | tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        
+        # List all changes
+        echo "Detailed Changes:" | tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        terraform show -json "$(Build.ArtifactStagingDirectory)/tfplan" | \
+          jq -r '.resource_changes[]? | "\(.change.actions[0]) \(.type).\(.name)"' | \
+          tee -a "$(Build.ArtifactStagingDirectory)/plan-summary.txt"
+        
+        echo ""
+        echo "✅ Plan summary generated"
+
+  # ========================================
+  # Step 9: Publish Plan Artifacts
+  # ========================================
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish Terraform Plan'
+    condition: and(succeeded(), eq(${{ parameters.publishPlan }}, true))
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)'
+      artifact: 'terraform-plan-${{ parameters.environment }}'
+      publishLocation: 'pipeline'

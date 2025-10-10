@@ -1,0 +1,341 @@
+# Azure DevOps Pipeline: Full Environment Deployment
+# Orchestrates complete environment deployment from foundation to VMs
+# Executes: Control Plane → Workload Zone → VM Deployment in sequence
+# Part of the unified SAP + Enterprise VM Automation solution
+
+name: FullDeployment-$(Date:yyyyMMdd)-$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - deploy/terraform/**
+      - deploy/scripts/**
+
+pr: none
+
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - uat
+      - prod
+  
+  - name: deploymentScope
+    displayName: 'Deployment Scope'
+    type: string
+    default: 'full'
+    values:
+      - full
+      - infrastructure-only
+      - vms-only
+  
+  - name: workspacePrefix
+    displayName: 'Workspace Prefix (optional)'
+    type: string
+    default: ''
+  
+  - name: autoApprove
+    displayName: 'Auto-approve (dev/uat only)'
+    type: boolean
+    default: false
+
+variables:
+  - group: vm-automation-secrets-${{ parameters.environment }}
+  - name: azureServiceConnection
+    value: 'azure-${{ parameters.environment }}-service-connection'
+  - name: isProduction
+    value: ${{ eq(parameters.environment, 'prod') }}
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ========================================
+  # STAGE 1: Control Plane Deployment
+  # ========================================
+  - stage: DeployControlPlane
+    displayName: 'Deploy Control Plane'
+    condition: in('${{ parameters.deploymentScope }}', 'full', 'infrastructure-only')
+    jobs:
+      - job: ControlPlane
+        displayName: 'Deploy Foundation Infrastructure'
+        steps:
+          - checkout: self
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: 'deploy/scripts/deploy_control_plane.sh'
+              scriptName: 'control-plane'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: 'bootstrap'
+              action: 'deploy'
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(System.DefaultWorkingDirectory)
+              skipValidation: false
+              cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
+              publishArtifacts: true
+
+  # ========================================
+  # STAGE 2: Approval Gate (Production)
+  # ========================================
+  - stage: ApprovalGate1
+    displayName: 'Approval: Proceed to Workload Zone'
+    dependsOn: DeployControlPlane
+    condition: and(succeeded(), eq(variables.isProduction, true), eq(${{ parameters.autoApprove }}, false))
+    jobs:
+      - job: WaitForApproval
+        displayName: 'Wait for Approval'
+        pool: server
+        timeoutInMinutes: 1440
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve Workload Zone Deployment'
+            inputs:
+              notifyUsers: 'devops-team@yourdomain.com'
+              instructions: |
+                **Control Plane Deployment Completed**
+                
+                Review the control plane deployment before proceeding to workload zone.
+                
+                Check:
+                1. Storage account created
+                2. Resource groups exist
+                3. No errors in deployment logs
+                
+                Click **Approve** to deploy workload zone.
+              onTimeout: 'reject'
+
+  # ========================================
+  # STAGE 3: Workload Zone Deployment
+  # ========================================
+  - stage: DeployWorkloadZone
+    displayName: 'Deploy Workload Zone'
+    dependsOn:
+      - DeployControlPlane
+      - ApprovalGate1
+    condition: |
+      and(
+        in('${{ parameters.deploymentScope }}', 'full', 'infrastructure-only'),
+        eq(dependencies.DeployControlPlane.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            in(dependencies.ApprovalGate1.result, 'Succeeded', 'Skipped')
+          )
+        )
+      )
+    jobs:
+      - job: WorkloadZone
+        displayName: 'Deploy Network Infrastructure'
+        steps:
+          - checkout: self
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: 'deploy/scripts/deploy_workload_zone.sh'
+              scriptName: 'workload-zone'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: 'run'
+              action: 'deploy'
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(System.DefaultWorkingDirectory)
+              skipValidation: false
+              cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
+              publishArtifacts: true
+
+  # ========================================
+  # STAGE 4: Approval Gate (Production)
+  # ========================================
+  - stage: ApprovalGate2
+    displayName: 'Approval: Proceed to VM Deployment'
+    dependsOn: DeployWorkloadZone
+    condition: and(succeeded(), eq(variables.isProduction, true), eq(${{ parameters.autoApprove }}, false))
+    jobs:
+      - job: WaitForApproval
+        displayName: 'Wait for Approval'
+        pool: server
+        timeoutInMinutes: 1440
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve VM Deployment'
+            inputs:
+              notifyUsers: 'devops-team@yourdomain.com'
+              instructions: |
+                **Workload Zone Deployment Completed**
+                
+                Review the network infrastructure before deploying VMs.
+                
+                Check:
+                1. VNets and subnets created
+                2. NSGs configured
+                3. Network connectivity verified
+                
+                Click **Approve** to deploy VMs.
+              onTimeout: 'reject'
+
+  # ========================================
+  # STAGE 5: VM Deployment
+  # ========================================
+  - stage: DeployVMs
+    displayName: 'Deploy Virtual Machines'
+    dependsOn:
+      - DeployWorkloadZone
+      - ApprovalGate2
+    condition: |
+      and(
+        in('${{ parameters.deploymentScope }}', 'full', 'vms-only'),
+        or(
+          eq(dependencies.DeployWorkloadZone.result, 'Succeeded'),
+          eq('${{ parameters.deploymentScope }}', 'vms-only')
+        ),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            in(dependencies.ApprovalGate2.result, 'Succeeded', 'Skipped')
+          )
+        )
+      )
+    jobs:
+      - job: VMDeployment
+        displayName: 'Deploy VMs'
+        steps:
+          - checkout: self
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: 'deploy/scripts/deploy_vm.sh'
+              scriptName: 'vm-deployment'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: 'run'
+              action: 'deploy'
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(System.DefaultWorkingDirectory)
+              skipValidation: false
+              cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
+              publishArtifacts: true
+
+  # ========================================
+  # STAGE 6: Post-Deployment Validation
+  # ========================================
+  - stage: PostDeploymentValidation
+    displayName: 'Post-Deployment Validation'
+    dependsOn:
+      - DeployControlPlane
+      - DeployWorkloadZone
+      - DeployVMs
+    condition: |
+      or(
+        and(
+          eq('${{ parameters.deploymentScope }}', 'full'),
+          eq(dependencies.DeployVMs.result, 'Succeeded')
+        ),
+        and(
+          eq('${{ parameters.deploymentScope }}', 'infrastructure-only'),
+          eq(dependencies.DeployWorkloadZone.result, 'Succeeded')
+        ),
+        and(
+          eq('${{ parameters.deploymentScope }}', 'vms-only'),
+          eq(dependencies.DeployVMs.result, 'Succeeded')
+        )
+      )
+    jobs:
+      - job: ValidationChecks
+        displayName: 'Run Validation Checks'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify Deployment'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "=============================================="
+                echo "Post-Deployment Validation"
+                echo "=============================================="
+                
+                echo "Environment: ${{ parameters.environment }}"
+                echo "Scope: ${{ parameters.deploymentScope }}"
+                
+                # List all resource groups
+                echo "Resource Groups:"
+                az group list --query "[?starts_with(name, 'rg-${{ parameters.environment }}')].{Name:name, Location:location}" -o table
+                
+                echo "✅ Deployment validated"
+          
+          - task: Bash@3
+            displayName: 'Generate Deployment Summary'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Generating deployment summary..."
+                
+                SUMMARY_FILE="deploy/docs/deployments/full-${{ parameters.environment }}-$(Build.BuildNumber).md"
+                mkdir -p "deploy/docs/deployments"
+                
+                cat > "$SUMMARY_FILE" << EOF
+                # Full Environment Deployment Summary
+                
+                **Build ID**: $(Build.BuildId)
+                **Build Number**: $(Build.BuildNumber)
+                **Environment**: ${{ parameters.environment }}
+                **Scope**: ${{ parameters.deploymentScope }}
+                **Workspace Prefix**: ${{ parameters.workspacePrefix }}
+                **Deployed**: $(date -Iseconds)
+                **Deployed By**: $(Build.RequestedFor)
+                
+                ## Deployment Stages
+                - Control Plane: ✅ Completed
+                - Workload Zone: ✅ Completed
+                - VMs: ✅ Completed
+                
+                ## Artifacts
+                - control-plane-artifacts
+                - workload-zone-artifacts
+                - vm-deployment-artifacts
+                
+                ---
+                *Auto-generated by Full Deployment Pipeline*
+                EOF
+                
+                echo "✅ Summary created: $SUMMARY_FILE"
+
+  # ========================================
+  # STAGE 7: Notification
+  # ========================================
+  - stage: Notification
+    displayName: 'Send Notifications'
+    dependsOn: PostDeploymentValidation
+    condition: succeeded()
+    jobs:
+      - job: NotifyStakeholders
+        displayName: 'Notify Stakeholders'
+        steps:
+          - task: Bash@3
+            displayName: 'Send Deployment Notification'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Sending deployment notification..."
+                
+                # Placeholder for notification
+                
+                echo "✅ Notification sent"

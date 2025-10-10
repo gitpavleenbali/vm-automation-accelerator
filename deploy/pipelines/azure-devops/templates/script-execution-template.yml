@@ -1,0 +1,377 @@
+# Azure DevOps Pipeline Template: Script Execution
+# Reusable template for executing SAP deployment scripts with standardized error handling and logging
+# Supports: deploy_control_plane.sh, deploy_workload_zone.sh, deploy_vm.sh, etc.
+
+parameters:
+  - name: scriptPath
+    type: string
+    displayName: 'Path to deployment script (relative to repo root)'
+  
+  - name: scriptName
+    type: string
+    displayName: 'Friendly name for the script (for logging)'
+  
+  - name: environment
+    type: string
+    displayName: 'Target environment (dev, uat, prod)'
+    default: 'dev'
+  
+  - name: workspacePrefix
+    type: string
+    displayName: 'Workspace prefix for SAP naming'
+    default: ''
+  
+  - name: deploymentMode
+    type: string
+    displayName: 'Deployment mode'
+    default: 'bootstrap'
+    values:
+      - bootstrap  # Local state (initial deployment)
+      - run        # Remote state (production deployment)
+  
+  - name: action
+    type: string
+    displayName: 'Deployment action'
+    default: 'deploy'
+    values:
+      - deploy
+      - destroy
+      - validate
+  
+  - name: additionalArgs
+    type: string
+    displayName: 'Additional arguments to pass to script'
+    default: ''
+  
+  - name: azureServiceConnection
+    type: string
+    displayName: 'Azure service connection name'
+  
+  - name: workingDirectory
+    type: string
+    displayName: 'Working directory for script execution'
+    default: '$(System.DefaultWorkingDirectory)'
+  
+  - name: skipValidation
+    type: boolean
+    displayName: 'Skip pre-deployment validation'
+    default: false
+  
+  - name: cleanupOnFailure
+    type: boolean
+    displayName: 'Run cleanup on failure'
+    default: true
+  
+  - name: publishArtifacts
+    type: boolean
+    displayName: 'Publish deployment artifacts'
+    default: true
+
+steps:
+  # ========================================
+  # Step 1: Pre-execution Validation
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Pre-execution Validation - ${{ parameters.scriptName }}'
+    condition: and(succeeded(), eq(${{ parameters.skipValidation }}, false))
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Pre-execution Validation: ${{ parameters.scriptName }}"
+        echo "=============================================="
+        
+        # Check script exists
+        if [ ! -f "${{ parameters.scriptPath }}" ]; then
+          echo "##vso[task.logissue type=error]Script not found: ${{ parameters.scriptPath }}"
+          exit 1
+        fi
+        
+        # Check script is executable
+        if [ ! -x "${{ parameters.scriptPath }}" ]; then
+          echo "Making script executable..."
+          chmod +x "${{ parameters.scriptPath }}"
+        fi
+        
+        # Validate environment parameter
+        if [[ ! "${{ parameters.environment }}" =~ ^(dev|uat|prod)$ ]]; then
+          echo "##vso[task.logissue type=error]Invalid environment: ${{ parameters.environment }}"
+          exit 1
+        fi
+        
+        # Check Azure CLI authentication
+        echo "Verifying Azure CLI authentication..."
+        az account show > /dev/null || {
+          echo "##vso[task.logissue type=error]Azure CLI authentication failed"
+          exit 1
+        }
+        
+        SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        SUBSCRIPTION_NAME=$(az account show --query name -o tsv)
+        echo "Connected to subscription: $SUBSCRIPTION_NAME ($SUBSCRIPTION_ID)"
+        
+        # Check Terraform version
+        if command -v terraform &> /dev/null; then
+          TERRAFORM_VERSION=$(terraform version -json | jq -r '.terraform_version')
+          echo "Terraform version: $TERRAFORM_VERSION"
+        else
+          echo "##vso[task.logissue type=warning]Terraform not found in PATH"
+        fi
+        
+        echo "Pre-execution validation completed successfully"
+
+  # ========================================
+  # Step 2: Setup Environment Variables
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Setup Environment Variables - ${{ parameters.scriptName }}'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Setting up environment variables"
+        echo "=============================================="
+        
+        # Export Azure subscription info
+        export ARM_SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+        export ARM_TENANT_ID=$(az account show --query tenantId -o tsv)
+        
+        # Export deployment parameters
+        export ENVIRONMENT="${{ parameters.environment }}"
+        export DEPLOYMENT_MODE="${{ parameters.deploymentMode }}"
+        export ACTION="${{ parameters.action }}"
+        export WORKSPACE_PREFIX="${{ parameters.workspacePrefix }}"
+        
+        # Export pipeline metadata
+        export PIPELINE_BUILD_ID="$(Build.BuildId)"
+        export PIPELINE_BUILD_NUMBER="$(Build.BuildNumber)"
+        export PIPELINE_RUN_ID="$(Build.BuildId)"
+        export PIPELINE_SOURCE_BRANCH="$(Build.SourceBranch)"
+        export PIPELINE_SOURCE_VERSION="$(Build.SourceVersion)"
+        
+        # Export artifact staging directory
+        export ARTIFACT_STAGING_DIR="$(Build.ArtifactStagingDirectory)"
+        
+        echo "Environment variables configured successfully"
+        echo ""
+        echo "Deployment Configuration:"
+        echo "  Environment: $ENVIRONMENT"
+        echo "  Mode: $DEPLOYMENT_MODE"
+        echo "  Action: $ACTION"
+        echo "  Workspace Prefix: ${WORKSPACE_PREFIX:-<default>}"
+        echo "  Subscription: $ARM_SUBSCRIPTION_ID"
+
+  # ========================================
+  # Step 3: Execute Deployment Script
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Execute Script - ${{ parameters.scriptName }}'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Executing: ${{ parameters.scriptName }}"
+        echo "=============================================="
+        echo "Script: ${{ parameters.scriptPath }}"
+        echo "Environment: ${{ parameters.environment }}"
+        echo "Mode: ${{ parameters.deploymentMode }}"
+        echo "Action: ${{ parameters.action }}"
+        echo "=============================================="
+        echo ""
+        
+        # Set up logging
+        LOG_FILE="$(Build.ArtifactStagingDirectory)/${{ parameters.scriptName }}-$(date +%Y%m%d-%H%M%S).log"
+        echo "Log file: $LOG_FILE"
+        
+        # Build command with arguments
+        SCRIPT_CMD="${{ parameters.scriptPath }}"
+        SCRIPT_CMD="$SCRIPT_CMD --environment ${{ parameters.environment }}"
+        SCRIPT_CMD="$SCRIPT_CMD --deployment-mode ${{ parameters.deploymentMode }}"
+        SCRIPT_CMD="$SCRIPT_CMD --action ${{ parameters.action }}"
+        
+        # Add workspace prefix if provided
+        if [ -n "${{ parameters.workspacePrefix }}" ]; then
+          SCRIPT_CMD="$SCRIPT_CMD --workspace-prefix ${{ parameters.workspacePrefix }}"
+        fi
+        
+        # Add additional arguments
+        if [ -n "${{ parameters.additionalArgs }}" ]; then
+          SCRIPT_CMD="$SCRIPT_CMD ${{ parameters.additionalArgs }}"
+        fi
+        
+        # Add non-interactive flag for pipeline execution
+        SCRIPT_CMD="$SCRIPT_CMD --non-interactive"
+        
+        echo "Executing command:"
+        echo "$SCRIPT_CMD"
+        echo ""
+        
+        # Execute script with logging
+        START_TIME=$(date +%s)
+        
+        if eval "$SCRIPT_CMD" 2>&1 | tee "$LOG_FILE"; then
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          
+          echo ""
+          echo "=============================================="
+          echo "✅ Script execution completed successfully"
+          echo "Duration: ${DURATION}s"
+          echo "=============================================="
+          
+          # Set output variable for success
+          echo "##vso[task.setvariable variable=scriptExecutionStatus;isOutput=true]success"
+          echo "##vso[task.setvariable variable=scriptExecutionDuration;isOutput=true]$DURATION"
+          
+          exit 0
+        else
+          END_TIME=$(date +%s)
+          DURATION=$((END_TIME - START_TIME))
+          EXIT_CODE=$?
+          
+          echo ""
+          echo "=============================================="
+          echo "❌ Script execution failed"
+          echo "Exit code: $EXIT_CODE"
+          echo "Duration: ${DURATION}s"
+          echo "=============================================="
+          echo ""
+          echo "Check log file for details: $LOG_FILE"
+          
+          # Set output variable for failure
+          echo "##vso[task.setvariable variable=scriptExecutionStatus;isOutput=true]failed"
+          echo "##vso[task.setvariable variable=scriptExecutionDuration;isOutput=true]$DURATION"
+          echo "##vso[task.setvariable variable=scriptExecutionExitCode;isOutput=true]$EXIT_CODE"
+          
+          exit $EXIT_CODE
+        fi
+    name: scriptExecution
+
+  # ========================================
+  # Step 4: Capture Deployment Outputs
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Capture Deployment Outputs - ${{ parameters.scriptName }}'
+    condition: succeeded()
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        set -e
+        
+        echo "=============================================="
+        echo "Capturing deployment outputs"
+        echo "=============================================="
+        
+        # Find the Terraform directory based on deployment mode and script type
+        TERRAFORM_DIR=""
+        
+        if [[ "${{ parameters.scriptName }}" == *"control-plane"* ]]; then
+          if [ "${{ parameters.deploymentMode }}" == "bootstrap" ]; then
+            TERRAFORM_DIR="deploy/terraform/bootstrap/control-plane"
+          else
+            TERRAFORM_DIR="deploy/terraform/run/control-plane"
+          fi
+        elif [[ "${{ parameters.scriptName }}" == *"workload-zone"* ]]; then
+          TERRAFORM_DIR="deploy/terraform/run/workload-zone"
+        elif [[ "${{ parameters.scriptName }}" == *"vm"* ]]; then
+          TERRAFORM_DIR="deploy/terraform/run/vm-deployment"
+        fi
+        
+        if [ -n "$TERRAFORM_DIR" ] && [ -d "$TERRAFORM_DIR" ]; then
+          echo "Checking for Terraform outputs in: $TERRAFORM_DIR"
+          
+          cd "$TERRAFORM_DIR"
+          
+          # Check if Terraform state exists
+          if terraform show &> /dev/null; then
+            echo "Extracting Terraform outputs..."
+            
+            # Export outputs as JSON
+            terraform output -json > "$(Build.ArtifactStagingDirectory)/terraform-outputs-${{ parameters.scriptName }}.json" || {
+              echo "##vso[task.logissue type=warning]Could not extract Terraform outputs"
+            }
+            
+            # Export outputs as text for human readability
+            terraform output > "$(Build.ArtifactStagingDirectory)/terraform-outputs-${{ parameters.scriptName }}.txt" || true
+            
+            echo "Terraform outputs captured successfully"
+          else
+            echo "##vso[task.logissue type=warning]No Terraform state found"
+          fi
+        else
+          echo "Terraform directory not found or not applicable for this script"
+        fi
+        
+        echo "Output capture completed"
+
+  # ========================================
+  # Step 5: Publish Artifacts
+  # ========================================
+  - task: PublishPipelineArtifact@1
+    displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }}'
+    condition: and(always(), eq(${{ parameters.publishArtifacts }}, true))
+    inputs:
+      targetPath: '$(Build.ArtifactStagingDirectory)'
+      artifact: '${{ parameters.scriptName }}-artifacts'
+      publishLocation: 'pipeline'
+
+  # ========================================
+  # Step 6: Cleanup on Failure (Optional)
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Cleanup on Failure - ${{ parameters.scriptName }}'
+    condition: and(failed(), eq(${{ parameters.cleanupOnFailure }}, true))
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'bash'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        set +e  # Don't exit on error during cleanup
+        
+        echo "=============================================="
+        echo "Running cleanup after failed deployment"
+        echo "=============================================="
+        
+        # Log the failure
+        echo "Deployment failed. Starting cleanup process..."
+        echo "Script: ${{ parameters.scriptName }}"
+        echo "Environment: ${{ parameters.environment }}"
+        echo "Mode: ${{ parameters.deploymentMode }}"
+        
+        # Attempt to destroy partially created resources (only in dev/uat)
+        if [[ "${{ parameters.environment }}" != "prod" ]]; then
+          echo "Attempting to destroy partially created resources..."
+          
+          # Re-run script with destroy action
+          ${{ parameters.scriptPath }} \
+            --environment ${{ parameters.environment }} \
+            --deployment-mode ${{ parameters.deploymentMode }} \
+            --action destroy \
+            --non-interactive \
+            --force || {
+            echo "##vso[task.logissue type=warning]Cleanup failed. Manual cleanup may be required."
+          }
+        else
+          echo "##vso[task.logissue type=warning]Skipping automatic cleanup in production environment"
+        fi
+        
+        echo "Cleanup process completed"

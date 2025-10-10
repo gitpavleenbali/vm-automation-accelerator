@@ -1,0 +1,481 @@
+# Azure DevOps Pipeline: SAP Control Plane Deployment
+# Deploys the control plane (shared state storage, naming resources)
+# Supports bootstrap (local state) → run (remote state) migration pattern
+# Part of the unified SAP + Enterprise VM Automation solution
+
+name: ControlPlane-$(Date:yyyyMMdd)-$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - deploy/terraform/bootstrap/control-plane/**
+      - deploy/terraform/run/control-plane/**
+      - deploy/scripts/deploy_control_plane.sh
+      - deploy/pipelines/azure-devops/control-plane-pipeline.yml
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - deploy/terraform/bootstrap/control-plane/**
+      - deploy/terraform/run/control-plane/**
+
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - uat
+      - prod
+  
+  - name: deploymentMode
+    displayName: 'Deployment Mode'
+    type: string
+    default: 'run'
+    values:
+      - bootstrap  # Initial deployment with local state
+      - run        # Production deployment with remote state
+  
+  - name: action
+    displayName: 'Deployment Action'
+    type: string
+    default: 'deploy'
+    values:
+      - deploy
+      - destroy
+      - validate
+  
+  - name: workspacePrefix
+    displayName: 'Workspace Prefix (optional)'
+    type: string
+    default: ''
+  
+  - name: autoApprove
+    displayName: 'Auto-approve deployment (dev/uat only)'
+    type: boolean
+    default: false
+
+variables:
+  - group: vm-automation-secrets-${{ parameters.environment }}
+  - name: azureServiceConnection
+    value: 'azure-${{ parameters.environment }}-service-connection'
+  - name: scriptPath
+    value: 'deploy/scripts/deploy_control_plane.sh'
+  - name: workingDirectory
+    value: '$(System.DefaultWorkingDirectory)'
+  - name: environment
+    value: ${{ parameters.environment }}
+  - name: isProduction
+    value: ${{ eq(parameters.environment, 'prod') }}
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ========================================
+  # STAGE 1: Pre-Deployment Validation
+  # ========================================
+  - stage: PreDeploymentValidation
+    displayName: 'Pre-Deployment Validation'
+    jobs:
+      - job: ValidateConfiguration
+        displayName: 'Validate Configuration and Prerequisites'
+        steps:
+          - checkout: self
+          
+          - task: Bash@3
+            displayName: 'Validate Deployment Mode'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "=============================================="
+                echo "Validating deployment configuration"
+                echo "=============================================="
+                echo "Environment: ${{ parameters.environment }}"
+                echo "Deployment Mode: ${{ parameters.deploymentMode }}"
+                echo "Action: ${{ parameters.action }}"
+                echo "=============================================="
+                
+                # Validate bootstrap should only be used initially
+                if [ "${{ parameters.deploymentMode }}" == "bootstrap" ]; then
+                  echo "⚠️ Bootstrap mode selected - this creates local state"
+                  echo "   Use 'run' mode for production deployments with remote state"
+                  
+                  if [ "${{ parameters.environment }}" == "prod" ]; then
+                    echo "##vso[task.logissue type=warning]Bootstrap mode in production - ensure this is intentional"
+                  fi
+                fi
+                
+                # Validate destroy action in production
+                if [ "${{ parameters.action }}" == "destroy" ] && [ "${{ parameters.environment }}" == "prod" ]; then
+                  echo "##vso[task.logissue type=error]Destroy action not allowed in production via pipeline"
+                  echo "For production destruction, use manual process with approvals"
+                  exit 1
+                fi
+                
+                echo "✅ Configuration validation passed"
+          
+          - task: AzureCLI@2
+            displayName: 'Check Azure Permissions'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Checking Azure permissions..."
+                
+                # Get current subscription
+                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+                SUBSCRIPTION_NAME=$(az account show --query name -o tsv)
+                
+                echo "Connected to: $SUBSCRIPTION_NAME ($SUBSCRIPTION_ID)"
+                
+                # Check if we can list resource groups (basic permission check)
+                if az group list --query "[0].name" -o tsv > /dev/null 2>&1; then
+                  echo "✅ Azure permissions verified"
+                else
+                  echo "##vso[task.logissue type=error]Insufficient Azure permissions"
+                  exit 1
+                fi
+          
+          - task: Bash@3
+            displayName: 'Validate Deployment Script'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Validating deployment script..."
+                
+                # Check script exists
+                if [ ! -f "$(scriptPath)" ]; then
+                  echo "##vso[task.logissue type=error]Deployment script not found: $(scriptPath)"
+                  exit 1
+                fi
+                
+                # Make executable if needed
+                chmod +x "$(scriptPath)"
+                
+                # Validate script has required functions (basic syntax check)
+                if grep -q "function deploy" "$(scriptPath)"; then
+                  echo "✅ Deployment script validated"
+                else
+                  echo "##vso[task.logissue type=warning]Script may not have standard structure"
+                fi
+
+  # ========================================
+  # STAGE 2: Control Plane Deployment
+  # ========================================
+  - stage: DeployControlPlane
+    displayName: 'Deploy Control Plane'
+    dependsOn: PreDeploymentValidation
+    condition: and(succeeded(), eq('${{ parameters.action }}', 'deploy'))
+    jobs:
+      - job: ExecuteDeployment
+        displayName: 'Execute Control Plane Deployment'
+        steps:
+          - checkout: self
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: $(scriptPath)
+              scriptName: 'control-plane-deployment'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: ${{ parameters.deploymentMode }}
+              action: 'deploy'
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(workingDirectory)
+              skipValidation: false
+              cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
+              publishArtifacts: true
+          
+          - task: AzureCLI@2
+            displayName: 'Verify Control Plane Deployment'
+            condition: succeeded()
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "=============================================="
+                echo "Verifying control plane deployment"
+                echo "=============================================="
+                
+                # Expected resource group name (SAP pattern)
+                EXPECTED_RG="rg-${{ parameters.environment }}-controlplane"
+                
+                # Check if control plane resource group exists
+                if az group show --name "$EXPECTED_RG" &>/dev/null; then
+                  echo "✅ Control plane resource group exists: $EXPECTED_RG"
+                  
+                  # List resources in the control plane
+                  echo ""
+                  echo "Resources in control plane:"
+                  az resource list --resource-group "$EXPECTED_RG" --query "[].{Name:name, Type:type}" -o table
+                  
+                  # Check for tfstate storage account (if run mode)
+                  if [ "${{ parameters.deploymentMode }}" == "run" ]; then
+                    echo ""
+                    echo "Checking for tfstate storage account..."
+                    STORAGE_ACCOUNTS=$(az storage account list --resource-group "$EXPECTED_RG" --query "[?starts_with(name, 'sttfstate')].name" -o tsv)
+                    
+                    if [ -n "$STORAGE_ACCOUNTS" ]; then
+                      echo "✅ Terraform state storage account(s) found:"
+                      echo "$STORAGE_ACCOUNTS"
+                    else
+                      echo "##vso[task.logissue type=warning]No tfstate storage account found"
+                    fi
+                  fi
+                else
+                  echo "##vso[task.logissue type=warning]Control plane resource group not found: $EXPECTED_RG"
+                  echo "This may be expected for bootstrap mode or custom naming"
+                fi
+                
+                echo ""
+                echo "✅ Control plane verification completed"
+
+  # ========================================
+  # STAGE 3: Approval Gate (Production Only)
+  # ========================================
+  - stage: ProductionApproval
+    displayName: 'Production Approval Gate'
+    dependsOn: DeployControlPlane
+    condition: and(succeeded(), eq(variables.isProduction, true), eq(${{ parameters.autoApprove }}, false))
+    jobs:
+      - job: WaitForApproval
+        displayName: 'Wait for Production Approval'
+        pool: server
+        timeoutInMinutes: 1440  # 24 hours
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve Control Plane Deployment'
+            inputs:
+              notifyUsers: 'l2-approvers@yourdomain.com'
+              instructions: |
+                **Control Plane Deployment - Production Approval Required**
+                
+                Please review the deployment artifacts before approving.
+                
+                **Deployment Details:**
+                - Environment: Production (${{ parameters.environment }})
+                - Deployment Mode: ${{ parameters.deploymentMode }}
+                - Workspace Prefix: ${{ parameters.workspacePrefix }}
+                - Build: $(Build.BuildNumber)
+                
+                **Review Checklist:**
+                1. Check deployment logs for any warnings
+                2. Verify resource group and storage account created
+                3. Confirm naming conventions followed
+                4. Review Terraform outputs
+                
+                **Artifacts to Review:**
+                - Download 'control-plane-deployment-artifacts'
+                - Review Terraform outputs and logs
+                
+                Click **Approve** to complete deployment or **Reject** to rollback.
+              onTimeout: 'reject'
+
+  # ========================================
+  # STAGE 4: Post-Deployment Tasks
+  # ========================================
+  - stage: PostDeployment
+    displayName: 'Post-Deployment Tasks'
+    dependsOn: 
+      - DeployControlPlane
+      - ProductionApproval
+    condition: |
+      and(
+        eq(dependencies.DeployControlPlane.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            eq(dependencies.ProductionApproval.result, 'Succeeded')
+          )
+        )
+      )
+    jobs:
+      - job: FinalizeDeployment
+        displayName: 'Finalize and Document Deployment'
+        steps:
+          - checkout: self
+          
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Deployment Artifacts'
+            inputs:
+              artifactName: 'control-plane-deployment-artifacts'
+              targetPath: '$(Pipeline.Workspace)/artifacts'
+          
+          - task: Bash@3
+            displayName: 'Generate Deployment Summary'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "=============================================="
+                echo "Control Plane Deployment Summary"
+                echo "=============================================="
+                echo "Environment: ${{ parameters.environment }}"
+                echo "Deployment Mode: ${{ parameters.deploymentMode }}"
+                echo "Build Number: $(Build.BuildNumber)"
+                echo "Build ID: $(Build.BuildId)"
+                echo "Completed: $(date)"
+                echo "=============================================="
+                echo ""
+                
+                # Check if Terraform outputs exist
+                if [ -f "$(Pipeline.Workspace)/artifacts/terraform-outputs-control-plane-deployment.json" ]; then
+                  echo "Terraform Outputs:"
+                  cat "$(Pipeline.Workspace)/artifacts/terraform-outputs-control-plane-deployment.json" | jq '.'
+                else
+                  echo "No Terraform outputs found"
+                fi
+                
+                echo ""
+                echo "✅ Control plane deployment completed successfully"
+          
+          - task: Bash@3
+            displayName: 'Update Documentation'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Updating deployment documentation..."
+                
+                # Create deployment record
+                DEPLOYMENT_RECORD="deploy/docs/deployments/control-plane-${{ parameters.environment }}-$(Build.BuildNumber).md"
+                mkdir -p "deploy/docs/deployments"
+                
+                cat > "$DEPLOYMENT_RECORD" << EOF
+                # Control Plane Deployment Record
+                
+                **Deployment ID**: $(Build.BuildId)
+                **Build Number**: $(Build.BuildNumber)
+                **Environment**: ${{ parameters.environment }}
+                **Deployment Mode**: ${{ parameters.deploymentMode }}
+                **Workspace Prefix**: ${{ parameters.workspacePrefix }}
+                **Deployed**: $(date -Iseconds)
+                **Deployed By**: $(Build.RequestedFor)
+                **Source Branch**: $(Build.SourceBranchName)
+                **Commit**: $(Build.SourceVersion)
+                
+                ## Status
+                ✅ Deployment completed successfully
+                
+                ## Artifacts
+                - Pipeline artifacts: control-plane-deployment-artifacts
+                - Terraform outputs: Available
+                
+                ## Next Steps
+                1. Deploy workload zone: \`workload-zone-pipeline.yml\`
+                2. Verify state storage account accessible
+                3. Review resource group and resources
+                
+                ---
+                *Auto-generated by Azure DevOps Pipeline*
+                EOF
+                
+                echo "✅ Deployment record created: $DEPLOYMENT_RECORD"
+
+  # ========================================
+  # STAGE 5: Destroy Control Plane (Manual Only)
+  # ========================================
+  - stage: DestroyControlPlane
+    displayName: 'Destroy Control Plane'
+    dependsOn: PreDeploymentValidation
+    condition: and(succeeded(), eq('${{ parameters.action }}', 'destroy'), ne('${{ parameters.environment }}', 'prod'))
+    jobs:
+      - job: ConfirmDestruction
+        displayName: 'Confirm Destruction'
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Confirm Control Plane Destruction'
+            inputs:
+              notifyUsers: 'devops-team@yourdomain.com'
+              instructions: |
+                ⚠️ **WARNING: Control Plane Destruction** ⚠️
+                
+                You are about to destroy the control plane infrastructure.
+                This will delete:
+                - State storage account and all state files
+                - Shared resources (naming, etc.)
+                - Resource group: rg-${{ parameters.environment }}-controlplane
+                
+                **THIS ACTION CANNOT BE UNDONE**
+                
+                Environment: ${{ parameters.environment }}
+                
+                Only approve if you are certain you want to destroy all control plane resources.
+              onTimeout: 'reject'
+      
+      - job: ExecuteDestruction
+        displayName: 'Execute Control Plane Destruction'
+        dependsOn: ConfirmDestruction
+        steps:
+          - checkout: self
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: $(scriptPath)
+              scriptName: 'control-plane-destruction'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: ${{ parameters.deploymentMode }}
+              action: 'destroy'
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(workingDirectory)
+              skipValidation: false
+              cleanupOnFailure: false
+              publishArtifacts: true
+
+  # ========================================
+  # STAGE 6: Notification
+  # ========================================
+  - stage: Notification
+    displayName: 'Send Notifications'
+    dependsOn:
+      - DeployControlPlane
+      - DestroyControlPlane
+    condition: always()
+    jobs:
+      - job: NotifyTeam
+        displayName: 'Notify DevOps Team'
+        steps:
+          - task: Bash@3
+            displayName: 'Send Notification'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                ACTION="${{ parameters.action }}"
+                STATUS="${{ job.status }}"
+                
+                echo "Sending notification..."
+                echo "Action: $ACTION"
+                echo "Status: $STATUS"
+                echo "Environment: ${{ parameters.environment }}"
+                echo "Build: $(Build.BuildNumber)"
+                
+                # TODO: Integrate with notification system (Email, Teams, Slack, etc.)
+                # For now, just log
+                echo "✅ Notification prepared (integration pending)"

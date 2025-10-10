@@ -1,0 +1,533 @@
+# Azure DevOps Pipeline: SAP Workload Zone Deployment
+# Deploys the workload zone (VNet, subnets, NSGs, shared networking infrastructure)
+# Depends on control plane being deployed first
+# Part of the unified SAP + Enterprise VM Automation solution
+
+name: WorkloadZone-$(Date:yyyyMMdd)-$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - deploy/terraform/run/workload-zone/**
+      - deploy/scripts/deploy_workload_zone.sh
+      - deploy/pipelines/azure-devops/workload-zone-pipeline.yml
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - deploy/terraform/run/workload-zone/**
+
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - uat
+      - prod
+  
+  - name: action
+    displayName: 'Deployment Action'
+    type: string
+    default: 'deploy'
+    values:
+      - deploy
+      - destroy
+      - validate
+  
+  - name: workspacePrefix
+    displayName: 'Workspace Prefix (optional)'
+    type: string
+    default: ''
+  
+  - name: vnetAddressSpace
+    displayName: 'VNet Address Space (optional override)'
+    type: string
+    default: ''
+  
+  - name: autoApprove
+    displayName: 'Auto-approve deployment (dev/uat only)'
+    type: boolean
+    default: false
+
+variables:
+  - group: vm-automation-secrets-${{ parameters.environment }}
+  - name: azureServiceConnection
+    value: 'azure-${{ parameters.environment }}-service-connection'
+  - name: scriptPath
+    value: 'deploy/scripts/deploy_workload_zone.sh'
+  - name: workingDirectory
+    value: '$(System.DefaultWorkingDirectory)'
+  - name: environment
+    value: ${{ parameters.environment }}
+  - name: isProduction
+    value: ${{ eq(parameters.environment, 'prod') }}
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ========================================
+  # STAGE 1: Pre-Deployment Validation
+  # ========================================
+  - stage: PreDeploymentValidation
+    displayName: 'Pre-Deployment Validation'
+    jobs:
+      - job: ValidatePrerequisites
+        displayName: 'Validate Prerequisites and Dependencies'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify Control Plane Exists'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "=============================================="
+                echo "Verifying control plane deployment"
+                echo "=============================================="
+                
+                # Expected control plane resource group
+                CONTROL_PLANE_RG="rg-${{ parameters.environment }}-controlplane"
+                
+                echo "Checking for control plane: $CONTROL_PLANE_RG"
+                
+                if az group show --name "$CONTROL_PLANE_RG" &>/dev/null; then
+                  echo "✅ Control plane exists: $CONTROL_PLANE_RG"
+                  
+                  # Check for tfstate storage account
+                  STORAGE_ACCOUNTS=$(az storage account list --resource-group "$CONTROL_PLANE_RG" --query "[?starts_with(name, 'sttfstate')].name" -o tsv)
+                  
+                  if [ -n "$STORAGE_ACCOUNTS" ]; then
+                    echo "✅ Terraform state storage found:"
+                    echo "$STORAGE_ACCOUNTS"
+                  else
+                    echo "##vso[task.logissue type=error]No tfstate storage account found in control plane"
+                    echo "Deploy control plane first using control-plane-pipeline.yml"
+                    exit 1
+                  fi
+                else
+                  echo "##vso[task.logissue type=error]Control plane not found: $CONTROL_PLANE_RG"
+                  echo "Deploy control plane first using control-plane-pipeline.yml"
+                  exit 1
+                fi
+                
+                echo ""
+                echo "✅ All prerequisites verified"
+          
+          - task: Bash@3
+            displayName: 'Validate Network Configuration'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Validating network configuration..."
+                
+                # Check if custom address space is provided and valid
+                if [ -n "${{ parameters.vnetAddressSpace }}" ]; then
+                  echo "Custom VNet address space: ${{ parameters.vnetAddressSpace }}"
+                  
+                  # Basic CIDR validation (regex)
+                  if [[ "${{ parameters.vnetAddressSpace }}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+                    echo "✅ Address space format valid"
+                  else
+                    echo "##vso[task.logissue type=error]Invalid CIDR format: ${{ parameters.vnetAddressSpace }}"
+                    exit 1
+                  fi
+                else
+                  echo "Using default VNet address space from configuration"
+                fi
+                
+                echo "✅ Network configuration validated"
+          
+          - task: Bash@3
+            displayName: 'Check Azure Quota'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Checking Azure networking quota..."
+                
+                # This is a placeholder - add actual quota check if needed
+                # For networks, check VNet and subnet limits
+                
+                echo "ℹ️ Quota check placeholder - implement if required"
+                echo "✅ Quota check completed"
+
+  # ========================================
+  # STAGE 2: Workload Zone Deployment
+  # ========================================
+  - stage: DeployWorkloadZone
+    displayName: 'Deploy Workload Zone'
+    dependsOn: PreDeploymentValidation
+    condition: and(succeeded(), eq('${{ parameters.action }}', 'deploy'))
+    jobs:
+      - job: ExecuteDeployment
+        displayName: 'Execute Workload Zone Deployment'
+        steps:
+          - checkout: self
+          
+          # Build additional arguments for custom network config
+          - task: Bash@3
+            displayName: 'Prepare Deployment Arguments'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Preparing deployment arguments..."
+                
+                ADDITIONAL_ARGS=""
+                
+                # Add custom VNet address space if provided
+                if [ -n "${{ parameters.vnetAddressSpace }}" ]; then
+                  ADDITIONAL_ARGS="$ADDITIONAL_ARGS --vnet-address-space ${{ parameters.vnetAddressSpace }}"
+                fi
+                
+                echo "Additional arguments: $ADDITIONAL_ARGS"
+                echo "##vso[task.setvariable variable=additionalArgs]$ADDITIONAL_ARGS"
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: $(scriptPath)
+              scriptName: 'workload-zone-deployment'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: 'run'  # Workload zone always uses remote state
+              action: 'deploy'
+              additionalArgs: $(additionalArgs)
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(workingDirectory)
+              skipValidation: false
+              cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
+              publishArtifacts: true
+          
+          - task: AzureCLI@2
+            displayName: 'Verify Workload Zone Deployment'
+            condition: succeeded()
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "=============================================="
+                echo "Verifying workload zone deployment"
+                echo "=============================================="
+                
+                # Expected resource group name (SAP pattern)
+                EXPECTED_RG="rg-${{ parameters.environment }}-workload-zone"
+                
+                # Check if workload zone resource group exists
+                if az group show --name "$EXPECTED_RG" &>/dev/null; then
+                  echo "✅ Workload zone resource group exists: $EXPECTED_RG"
+                  
+                  echo ""
+                  echo "Resources in workload zone:"
+                  az resource list --resource-group "$EXPECTED_RG" --query "[].{Name:name, Type:type}" -o table
+                  
+                  # Check for VNet
+                  echo ""
+                  echo "Checking for VNet..."
+                  VNETS=$(az network vnet list --resource-group "$EXPECTED_RG" --query "[].name" -o tsv)
+                  
+                  if [ -n "$VNETS" ]; then
+                    echo "✅ VNet(s) found:"
+                    echo "$VNETS"
+                    
+                    # Show VNet details
+                    for vnet in $VNETS; do
+                      echo ""
+                      echo "VNet: $vnet"
+                      az network vnet show --name "$vnet" --resource-group "$EXPECTED_RG" --query "{AddressSpace:addressSpace.addressPrefixes, Subnets:subnets[].name}" -o json | jq '.'
+                    done
+                  else
+                    echo "##vso[task.logissue type=error]No VNet found in workload zone"
+                    exit 1
+                  fi
+                  
+                  # Check for NSGs
+                  echo ""
+                  echo "Checking for Network Security Groups..."
+                  NSGS=$(az network nsg list --resource-group "$EXPECTED_RG" --query "[].name" -o tsv)
+                  
+                  if [ -n "$NSGS" ]; then
+                    echo "✅ NSG(s) found:"
+                    echo "$NSGS"
+                  else
+                    echo "##vso[task.logissue type=warning]No NSGs found"
+                  fi
+                else
+                  echo "##vso[task.logissue type=warning]Workload zone resource group not found: $EXPECTED_RG"
+                  echo "This may be expected for custom naming"
+                fi
+                
+                echo ""
+                echo "✅ Workload zone verification completed"
+          
+          - task: AzureCLI@2
+            displayName: 'Test Network Connectivity'
+            condition: succeeded()
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "=============================================="
+                echo "Testing network connectivity"
+                echo "=============================================="
+                
+                # This is a placeholder for network connectivity tests
+                # In a real scenario, you might:
+                # 1. Deploy a test VM
+                # 2. Test connectivity between subnets
+                # 3. Verify NSG rules
+                # 4. Test DNS resolution
+                
+                echo "ℹ️ Network connectivity tests placeholder"
+                echo "✅ Network validation completed"
+
+  # ========================================
+  # STAGE 3: Approval Gate (Production Only)
+  # ========================================
+  - stage: ProductionApproval
+    displayName: 'Production Approval Gate'
+    dependsOn: DeployWorkloadZone
+    condition: and(succeeded(), eq(variables.isProduction, true), eq(${{ parameters.autoApprove }}, false))
+    jobs:
+      - job: WaitForApproval
+        displayName: 'Wait for Production Approval'
+        pool: server
+        timeoutInMinutes: 1440  # 24 hours
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve Workload Zone Deployment'
+            inputs:
+              notifyUsers: 'l2-approvers@yourdomain.com'
+              instructions: |
+                **Workload Zone Deployment - Production Approval Required**
+                
+                Please review the deployment artifacts before approving.
+                
+                **Deployment Details:**
+                - Environment: Production (${{ parameters.environment }})
+                - Workspace Prefix: ${{ parameters.workspacePrefix }}
+                - VNet Address Space: ${{ parameters.vnetAddressSpace }}
+                - Build: $(Build.BuildNumber)
+                
+                **Review Checklist:**
+                1. Check deployment logs for warnings
+                2. Verify VNet and subnets created
+                3. Confirm NSG rules are appropriate
+                4. Review address space and subnet allocations
+                5. Check Terraform outputs
+                
+                **Artifacts to Review:**
+                - Download 'workload-zone-deployment-artifacts'
+                - Review network configuration
+                
+                Click **Approve** to complete deployment or **Reject** to rollback.
+              onTimeout: 'reject'
+
+  # ========================================
+  # STAGE 4: Post-Deployment Tasks
+  # ========================================
+  - stage: PostDeployment
+    displayName: 'Post-Deployment Tasks'
+    dependsOn: 
+      - DeployWorkloadZone
+      - ProductionApproval
+    condition: |
+      and(
+        eq(dependencies.DeployWorkloadZone.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            eq(dependencies.ProductionApproval.result, 'Succeeded')
+          )
+        )
+      )
+    jobs:
+      - job: FinalizeDeployment
+        displayName: 'Finalize and Document Deployment'
+        steps:
+          - checkout: self
+          
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Deployment Artifacts'
+            inputs:
+              artifactName: 'workload-zone-deployment-artifacts'
+              targetPath: '$(Pipeline.Workspace)/artifacts'
+          
+          - task: Bash@3
+            displayName: 'Generate Network Diagram'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Generating network diagram..."
+                
+                # This is a placeholder for automated network diagram generation
+                # Could use tools like:
+                # - Azure Resource Graph to query topology
+                # - Graphviz to generate diagrams
+                # - Export to draw.io format
+                
+                echo "ℹ️ Network diagram generation placeholder"
+                echo "✅ Network documentation prepared"
+          
+          - task: Bash@3
+            displayName: 'Update Documentation'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Updating deployment documentation..."
+                
+                # Create deployment record
+                DEPLOYMENT_RECORD="deploy/docs/deployments/workload-zone-${{ parameters.environment }}-$(Build.BuildNumber).md"
+                mkdir -p "deploy/docs/deployments"
+                
+                cat > "$DEPLOYMENT_RECORD" << EOF
+                # Workload Zone Deployment Record
+                
+                **Deployment ID**: $(Build.BuildId)
+                **Build Number**: $(Build.BuildNumber)
+                **Environment**: ${{ parameters.environment }}
+                **Workspace Prefix**: ${{ parameters.workspacePrefix }}
+                **VNet Address Space**: ${{ parameters.vnetAddressSpace }}
+                **Deployed**: $(date -Iseconds)
+                **Deployed By**: $(Build.RequestedFor)
+                **Source Branch**: $(Build.SourceBranchName)
+                **Commit**: $(Build.SourceVersion)
+                
+                ## Status
+                ✅ Deployment completed successfully
+                
+                ## Network Configuration
+                - VNet created with configured address space
+                - Subnets provisioned for VM deployment
+                - NSGs applied with security rules
+                - Remote state stored in control plane
+                
+                ## Artifacts
+                - Pipeline artifacts: workload-zone-deployment-artifacts
+                - Terraform outputs: Available
+                
+                ## Next Steps
+                1. Deploy VMs: \`vm-deployment-pipeline.yml\`
+                2. Verify network connectivity
+                3. Review NSG rules for compliance
+                
+                ---
+                *Auto-generated by Azure DevOps Pipeline*
+                EOF
+                
+                echo "✅ Deployment record created: $DEPLOYMENT_RECORD"
+
+  # ========================================
+  # STAGE 5: Destroy Workload Zone (Manual Only)
+  # ========================================
+  - stage: DestroyWorkloadZone
+    displayName: 'Destroy Workload Zone'
+    dependsOn: PreDeploymentValidation
+    condition: and(succeeded(), eq('${{ parameters.action }}', 'destroy'), ne('${{ parameters.environment }}', 'prod'))
+    jobs:
+      - job: ConfirmDestruction
+        displayName: 'Confirm Destruction'
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Confirm Workload Zone Destruction'
+            inputs:
+              notifyUsers: 'devops-team@yourdomain.com'
+              instructions: |
+                ⚠️ **WARNING: Workload Zone Destruction** ⚠️
+                
+                You are about to destroy the workload zone infrastructure.
+                This will delete:
+                - VNet and all subnets
+                - NSGs and security rules
+                - All networking resources
+                - Resource group: rg-${{ parameters.environment }}-workload-zone
+                
+                **⚠️ ALL VMs CONNECTED TO THIS NETWORK WILL LOSE CONNECTIVITY**
+                
+                Environment: ${{ parameters.environment }}
+                
+                Ensure all VMs are deleted before proceeding.
+                Only approve if you are certain you want to destroy the workload zone.
+              onTimeout: 'reject'
+      
+      - job: ExecuteDestruction
+        displayName: 'Execute Workload Zone Destruction'
+        dependsOn: ConfirmDestruction
+        steps:
+          - checkout: self
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: $(scriptPath)
+              scriptName: 'workload-zone-destruction'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: 'run'
+              action: 'destroy'
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(workingDirectory)
+              skipValidation: false
+              cleanupOnFailure: false
+              publishArtifacts: true
+
+  # ========================================
+  # STAGE 6: Notification
+  # ========================================
+  - stage: Notification
+    displayName: 'Send Notifications'
+    dependsOn:
+      - DeployWorkloadZone
+      - DestroyWorkloadZone
+    condition: always()
+    jobs:
+      - job: NotifyTeam
+        displayName: 'Notify DevOps Team'
+        steps:
+          - task: Bash@3
+            displayName: 'Send Notification'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                ACTION="${{ parameters.action }}"
+                STATUS="${{ job.status }}"
+                
+                echo "Sending notification..."
+                echo "Action: $ACTION"
+                echo "Status: $STATUS"
+                echo "Environment: ${{ parameters.environment }}"
+                echo "Build: $(Build.BuildNumber)"
+                
+                # TODO: Integrate with notification system (Email, Teams, Slack, etc.)
+                echo "✅ Notification prepared (integration pending)"

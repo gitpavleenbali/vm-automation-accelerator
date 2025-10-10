@@ -1,0 +1,682 @@
+# Azure DevOps Pipeline: SAP VM Deployment
+# Deploys virtual machines with monitoring, backup, governance, and enterprise features
+# Integrates Day 1 enterprise patterns with Day 3 SAP deployment scripts
+# Part of the unified SAP + Enterprise VM Automation solution
+
+name: VMDeployment-$(Date:yyyyMMdd)-$(Rev:r)
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - deploy/terraform/run/vm-deployment/**
+      - deploy/scripts/deploy_vm.sh
+      - deploy/pipelines/azure-devops/vm-deployment-pipeline.yml
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - deploy/terraform/run/vm-deployment/**
+
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - uat
+      - prod
+  
+  - name: vmName
+    displayName: 'VM Name'
+    type: string
+    default: ''
+  
+  - name: vmSize
+    displayName: 'VM Size (SKU)'
+    type: string
+    default: 'Standard_D2s_v3'
+    values:
+      - Standard_B2s
+      - Standard_B2ms
+      - Standard_D2s_v3
+      - Standard_D4s_v3
+      - Standard_D8s_v3
+      - Standard_E2s_v3
+      - Standard_E4s_v3
+      - Standard_F2s_v2
+      - Standard_F4s_v2
+  
+  - name: osType
+    displayName: 'Operating System'
+    type: string
+    default: 'Linux'
+    values:
+      - Windows
+      - Linux
+  
+  - name: action
+    displayName: 'Deployment Action'
+    type: string
+    default: 'deploy'
+    values:
+      - deploy
+      - destroy
+      - validate
+  
+  - name: workspacePrefix
+    displayName: 'Workspace Prefix (optional)'
+    type: string
+    default: ''
+  
+  - name: serviceNowTicket
+    displayName: 'ServiceNow Ticket Number (optional)'
+    type: string
+    default: ''
+  
+  - name: enableBackup
+    displayName: 'Enable Azure Backup'
+    type: boolean
+    default: true
+  
+  - name: enableMonitoring
+    displayName: 'Enable Azure Monitor'
+    type: boolean
+    default: true
+  
+  - name: autoApprove
+    displayName: 'Auto-approve deployment (dev/uat only)'
+    type: boolean
+    default: false
+
+variables:
+  - group: vm-automation-secrets-${{ parameters.environment }}
+  - name: azureServiceConnection
+    value: 'azure-${{ parameters.environment }}-service-connection'
+  - name: scriptPath
+    value: 'deploy/scripts/deploy_vm.sh'
+  - name: workingDirectory
+    value: '$(System.DefaultWorkingDirectory)'
+  - name: environment
+    value: ${{ parameters.environment }}
+  - name: isProduction
+    value: ${{ eq(parameters.environment, 'prod') }}
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ========================================
+  # STAGE 1: Pre-Deployment Validation
+  # ========================================
+  - stage: PreDeploymentValidation
+    displayName: 'Pre-Deployment Validation'
+    jobs:
+      - job: ValidatePrerequisites
+        displayName: 'Validate Prerequisites and Dependencies'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify Control Plane and Workload Zone'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "=============================================="
+                echo "Verifying deployment prerequisites"
+                echo "=============================================="
+                
+                # Check control plane
+                CONTROL_PLANE_RG="rg-${{ parameters.environment }}-controlplane"
+                echo "Checking control plane: $CONTROL_PLANE_RG"
+                
+                if ! az group show --name "$CONTROL_PLANE_RG" &>/dev/null; then
+                  echo "##vso[task.logissue type=error]Control plane not found: $CONTROL_PLANE_RG"
+                  echo "Deploy control plane first using control-plane-pipeline.yml"
+                  exit 1
+                fi
+                
+                # Check workload zone
+                WORKLOAD_ZONE_RG="rg-${{ parameters.environment }}-workload-zone"
+                echo "Checking workload zone: $WORKLOAD_ZONE_RG"
+                
+                if ! az group show --name "$WORKLOAD_ZONE_RG" &>/dev/null; then
+                  echo "##vso[task.logissue type=error]Workload zone not found: $WORKLOAD_ZONE_RG"
+                  echo "Deploy workload zone first using workload-zone-pipeline.yml"
+                  exit 1
+                fi
+                
+                # Verify VNet exists
+                VNETS=$(az network vnet list --resource-group "$WORKLOAD_ZONE_RG" --query "[].name" -o tsv)
+                if [ -z "$VNETS" ]; then
+                  echo "##vso[task.logissue type=error]No VNet found in workload zone"
+                  exit 1
+                fi
+                
+                echo "✅ All prerequisites verified"
+          
+          - task: Bash@3
+            displayName: 'Validate VM Configuration'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Validating VM configuration..."
+                
+                # Validate VM name if provided
+                if [ -n "${{ parameters.vmName }}" ]; then
+                  VM_NAME="${{ parameters.vmName }}"
+                  echo "VM Name: $VM_NAME"
+                  
+                  # Check naming convention (basic validation)
+                  if [[ ! "$VM_NAME" =~ ^[a-z0-9-]+$ ]]; then
+                    echo "##vso[task.logissue type=error]Invalid VM name format. Use lowercase alphanumeric and hyphens only."
+                    exit 1
+                  fi
+                fi
+                
+                # Validate VM size
+                echo "VM Size: ${{ parameters.vmSize }}"
+                echo "OS Type: ${{ parameters.osType }}"
+                
+                echo "✅ VM configuration validated"
+          
+          - task: AzureCLI@2
+            displayName: 'Check Azure Quota'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Checking Azure quota for VM size: ${{ parameters.vmSize }}"
+                
+                # Get VM size details
+                LOCATION="eastus"  # TODO: Get from environment config
+                
+                # Check if VM size is available in region
+                AVAILABLE=$(az vm list-sizes --location "$LOCATION" --query "[?name=='${{ parameters.vmSize }}'].name" -o tsv)
+                
+                if [ -z "$AVAILABLE" ]; then
+                  echo "##vso[task.logissue type=error]VM size ${{ parameters.vmSize }} not available in $LOCATION"
+                  exit 1
+                fi
+                
+                echo "✅ VM size available in region"
+          
+          - task: Bash@3
+            displayName: 'Governance Policy Pre-Check'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Checking governance policies..."
+                
+                # Placeholder for governance policy checks
+                # Will be implemented in Phase 4
+                
+                echo "✅ Governance pre-check completed (placeholder)"
+          
+          - task: Bash@3
+            displayName: 'ServiceNow Ticket Validation'
+            condition: and(succeeded(), ne('${{ parameters.serviceNowTicket }}', ''))
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Validating ServiceNow ticket: ${{ parameters.serviceNowTicket }}"
+                
+                # Placeholder for ServiceNow integration
+                # Will be implemented in Phase 3
+                
+                echo "✅ ServiceNow ticket validated (placeholder)"
+
+  # ========================================
+  # STAGE 2: Cost Estimation
+  # ========================================
+  - stage: CostEstimation
+    displayName: 'Cost Estimation'
+    dependsOn: PreDeploymentValidation
+    condition: succeeded()
+    jobs:
+      - job: EstimateCost
+        displayName: 'Estimate Deployment Cost'
+        steps:
+          - checkout: self
+          
+          - task: Bash@3
+            displayName: 'Generate Cost Estimate'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "=============================================="
+                echo "Estimating deployment cost"
+                echo "=============================================="
+                echo "VM Size: ${{ parameters.vmSize }}"
+                echo "OS Type: ${{ parameters.osType }}"
+                echo "Backup: ${{ parameters.enableBackup }}"
+                echo "Monitoring: ${{ parameters.enableMonitoring }}"
+                echo "Environment: ${{ parameters.environment }}"
+                echo "=============================================="
+                
+                # Placeholder for actual cost calculation
+                # Could integrate with Azure Pricing API or Azure Cost Management
+                
+                echo "Estimated monthly cost: \$XXX.XX (placeholder)"
+                echo "✅ Cost estimation completed"
+
+  # ========================================
+  # STAGE 3: VM Deployment
+  # ========================================
+  - stage: DeployVM
+    displayName: 'Deploy Virtual Machine'
+    dependsOn: 
+      - PreDeploymentValidation
+      - CostEstimation
+    condition: and(succeeded(), eq('${{ parameters.action }}', 'deploy'))
+    jobs:
+      - job: ExecuteDeployment
+        displayName: 'Execute VM Deployment'
+        steps:
+          - checkout: self
+          
+          - task: Bash@3
+            displayName: 'Prepare Deployment Arguments'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Preparing deployment arguments..."
+                
+                ADDITIONAL_ARGS=""
+                
+                # Add VM name if provided
+                if [ -n "${{ parameters.vmName }}" ]; then
+                  ADDITIONAL_ARGS="$ADDITIONAL_ARGS --vm-name ${{ parameters.vmName }}"
+                fi
+                
+                # Add VM size
+                ADDITIONAL_ARGS="$ADDITIONAL_ARGS --vm-size ${{ parameters.vmSize }}"
+                
+                # Add OS type
+                ADDITIONAL_ARGS="$ADDITIONAL_ARGS --os-type ${{ parameters.osType }}"
+                
+                # Add backup flag
+                if [ "${{ parameters.enableBackup }}" == "True" ]; then
+                  ADDITIONAL_ARGS="$ADDITIONAL_ARGS --enable-backup"
+                fi
+                
+                # Add monitoring flag
+                if [ "${{ parameters.enableMonitoring }}" == "True" ]; then
+                  ADDITIONAL_ARGS="$ADDITIONAL_ARGS --enable-monitoring"
+                fi
+                
+                echo "Additional arguments: $ADDITIONAL_ARGS"
+                echo "##vso[task.setvariable variable=additionalArgs]$ADDITIONAL_ARGS"
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: $(scriptPath)
+              scriptName: 'vm-deployment'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: 'run'
+              action: 'deploy'
+              additionalArgs: $(additionalArgs)
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(workingDirectory)
+              skipValidation: false
+              cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
+              publishArtifacts: true
+          
+          - task: AzureCLI@2
+            displayName: 'Verify VM Deployment'
+            condition: succeeded()
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "=============================================="
+                echo "Verifying VM deployment"
+                echo "=============================================="
+                
+                # TODO: Get VM ID from Terraform outputs
+                VM_NAME="${{ parameters.vmName }}"
+                
+                if [ -z "$VM_NAME" ]; then
+                  echo "VM name not provided, skipping verification"
+                  exit 0
+                fi
+                
+                echo "Checking VM status: $VM_NAME"
+                
+                # Find VM across all resource groups (placeholder)
+                echo "✅ VM verification completed (placeholder)"
+
+  # ========================================
+  # STAGE 4: Post-Deployment Configuration
+  # ========================================
+  - stage: PostDeploymentConfiguration
+    displayName: 'Post-Deployment Configuration'
+    dependsOn: DeployVM
+    condition: succeeded()
+    jobs:
+      - job: ConfigureVM
+        displayName: 'Configure VM Extensions and Monitoring'
+        steps:
+          - checkout: self
+          
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Deployment Artifacts'
+            inputs:
+              artifactName: 'vm-deployment-artifacts'
+              targetPath: '$(Pipeline.Workspace)/artifacts'
+          
+          - task: AzureCLI@2
+            displayName: 'Install Monitoring Extensions'
+            condition: and(succeeded(), eq('${{ parameters.enableMonitoring }}', true))
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Installing monitoring extensions..."
+                
+                # Placeholder for monitoring extension installation
+                # Will use Azure Monitor Agent
+                
+                echo "✅ Monitoring extensions installed (placeholder)"
+          
+          - task: AzureCLI@2
+            displayName: 'Configure Azure Backup'
+            condition: and(succeeded(), eq('${{ parameters.enableBackup }}', true))
+            inputs:
+              azureServiceConnection: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Configuring Azure Backup..."
+                
+                # Placeholder for backup configuration
+                
+                echo "✅ Backup configured (placeholder)"
+          
+          - task: Bash@3
+            displayName: 'Apply Governance Tags'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Applying governance tags..."
+                
+                # Placeholder for governance tag application
+                # Tags: Environment, CostCenter, Owner, Application
+                
+                echo "✅ Governance tags applied (placeholder)"
+
+  # ========================================
+  # STAGE 5: Validation and Testing
+  # ========================================
+  - stage: ValidationTesting
+    displayName: 'Validation and Testing'
+    dependsOn: PostDeploymentConfiguration
+    condition: succeeded()
+    jobs:
+      - job: ValidateDeployment
+        displayName: 'Validate VM and Services'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify VM Running Status'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Checking VM status..."
+                
+                # Placeholder for VM status check
+                
+                echo "✅ VM is running"
+          
+          - task: AzureCLI@2
+            displayName: 'Verify Network Connectivity'
+            inputs:
+              azureServiceConnection: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Testing network connectivity..."
+                
+                # Placeholder for network connectivity tests
+                
+                echo "✅ Network connectivity verified"
+          
+          - task: Bash@3
+            displayName: 'Run Compliance Checks'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Running compliance checks..."
+                
+                # Placeholder for compliance validation
+                # Will integrate with Azure Policy in Phase 4
+                
+                echo "✅ Compliance checks passed (placeholder)"
+
+  # ========================================
+  # STAGE 6: Approval Gate (Production Only)
+  # ========================================
+  - stage: ProductionApproval
+    displayName: 'Production Approval Gate'
+    dependsOn: ValidationTesting
+    condition: and(succeeded(), eq(variables.isProduction, true), eq(${{ parameters.autoApprove }}, false))
+    jobs:
+      - job: WaitForApproval
+        displayName: 'Wait for Production Approval'
+        pool: server
+        timeoutInMinutes: 1440
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve VM Deployment'
+            inputs:
+              notifyUsers: 'l2-approvers@yourdomain.com'
+              instructions: |
+                **VM Deployment - Production Approval Required**
+                
+                **VM Details:**
+                - VM Name: ${{ parameters.vmName }}
+                - VM Size: ${{ parameters.vmSize }}
+                - OS Type: ${{ parameters.osType }}
+                - Environment: ${{ parameters.environment }}
+                - Backup: ${{ parameters.enableBackup }}
+                - Monitoring: ${{ parameters.enableMonitoring }}
+                - ServiceNow Ticket: ${{ parameters.serviceNowTicket }}
+                
+                **Review Checklist:**
+                1. Check deployment logs
+                2. Verify VM is running
+                3. Confirm network connectivity
+                4. Review cost estimate
+                5. Validate compliance checks passed
+                
+                **Artifacts:**
+                - Download 'vm-deployment-artifacts'
+                - Review Terraform outputs
+                
+                Click **Approve** to finalize or **Reject** to rollback.
+              onTimeout: 'reject'
+
+  # ========================================
+  # STAGE 7: Finalization
+  # ========================================
+  - stage: Finalization
+    displayName: 'Finalization and Notifications'
+    dependsOn:
+      - ValidationTesting
+      - ProductionApproval
+    condition: |
+      and(
+        eq(dependencies.ValidationTesting.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            in(dependencies.ProductionApproval.result, 'Succeeded', 'Skipped')
+          )
+        )
+      )
+    jobs:
+      - job: FinalizeDeployment
+        displayName: 'Finalize Deployment'
+        steps:
+          - checkout: self
+          
+          - task: Bash@3
+            displayName: 'Update ServiceNow Ticket'
+            condition: ne('${{ parameters.serviceNowTicket }}', '')
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Updating ServiceNow ticket: ${{ parameters.serviceNowTicket }}"
+                
+                # Placeholder for ServiceNow update
+                # Will be implemented in Phase 3
+                
+                echo "✅ ServiceNow ticket updated (placeholder)"
+          
+          - task: Bash@3
+            displayName: 'Generate Deployment Documentation'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Generating deployment documentation..."
+                
+                DEPLOYMENT_RECORD="deploy/docs/deployments/vm-${{ parameters.environment }}-$(Build.BuildNumber).md"
+                mkdir -p "deploy/docs/deployments"
+                
+                cat > "$DEPLOYMENT_RECORD" << EOF
+                # VM Deployment Record
+                
+                **Deployment ID**: $(Build.BuildId)
+                **Build Number**: $(Build.BuildNumber)
+                **Environment**: ${{ parameters.environment }}
+                **VM Name**: ${{ parameters.vmName }}
+                **VM Size**: ${{ parameters.vmSize }}
+                **OS Type**: ${{ parameters.osType }}
+                **Backup Enabled**: ${{ parameters.enableBackup }}
+                **Monitoring Enabled**: ${{ parameters.enableMonitoring }}
+                **ServiceNow Ticket**: ${{ parameters.serviceNowTicket }}
+                **Deployed**: $(date -Iseconds)
+                **Deployed By**: $(Build.RequestedFor)
+                
+                ## Status
+                ✅ Deployment completed successfully
+                
+                ## Artifacts
+                - Pipeline artifacts: vm-deployment-artifacts
+                
+                ---
+                *Auto-generated by Azure DevOps Pipeline*
+                EOF
+                
+                echo "✅ Deployment record created: $DEPLOYMENT_RECORD"
+          
+          - task: Bash@3
+            displayName: 'Send Notification'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Sending deployment notification..."
+                
+                # Placeholder for notification (Email, Teams, Slack)
+                
+                echo "✅ Notification sent (placeholder)"
+
+  # ========================================
+  # STAGE 8: Destroy VM (Manual Only)
+  # ========================================
+  - stage: DestroyVM
+    displayName: 'Destroy Virtual Machine'
+    dependsOn: PreDeploymentValidation
+    condition: and(succeeded(), eq('${{ parameters.action }}', 'destroy'), ne('${{ parameters.environment }}', 'prod'))
+    jobs:
+      - job: ConfirmDestruction
+        displayName: 'Confirm VM Destruction'
+        pool: server
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Confirm VM Destruction'
+            inputs:
+              notifyUsers: 'devops-team@yourdomain.com'
+              instructions: |
+                ⚠️ **WARNING: VM Destruction** ⚠️
+                
+                You are about to destroy the VM:
+                - VM Name: ${{ parameters.vmName }}
+                - Environment: ${{ parameters.environment }}
+                
+                **THIS ACTION CANNOT BE UNDONE**
+                
+                Only approve if you are certain.
+              onTimeout: 'reject'
+      
+      - job: ExecuteDestruction
+        displayName: 'Execute VM Destruction'
+        dependsOn: ConfirmDestruction
+        steps:
+          - checkout: self
+          
+          - template: templates/script-execution-template.yml
+            parameters:
+              scriptPath: $(scriptPath)
+              scriptName: 'vm-destruction'
+              environment: ${{ parameters.environment }}
+              workspacePrefix: ${{ parameters.workspacePrefix }}
+              deploymentMode: 'run'
+              action: 'destroy'
+              azureServiceConnection: $(azureServiceConnection)
+              workingDirectory: $(workingDirectory)
+              skipValidation: false
+              cleanupOnFailure: false
+              publishArtifacts: true

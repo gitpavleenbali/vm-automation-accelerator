@@ -1,0 +1,801 @@
+# Azure DevOps Pipeline: VM Operations
+# Unified pipeline for VM lifecycle operations: disk management, SKU changes, backup/restore, power operations
+# Consolidates Day 1 operations pipelines into unified SAP-based workflow
+# Part of the unified SAP + Enterprise VM Automation solution
+
+name: VMOperations-$(Date:yyyyMMdd)-$(Rev:r)
+
+trigger: none  # Manual trigger only for operations
+
+pr: none  # No PR triggers for operations
+
+parameters:
+  - name: environment
+    displayName: 'Target Environment'
+    type: string
+    default: 'dev'
+    values:
+      - dev
+      - uat
+      - prod
+  
+  - name: operationType
+    displayName: 'Operation Type'
+    type: string
+    default: 'disk-modify'
+    values:
+      - disk-modify
+      - sku-change
+      - backup-restore
+      - power-start
+      - power-stop
+      - power-restart
+  
+  - name: vmName
+    displayName: 'VM Name (required)'
+    type: string
+  
+  - name: vmResourceGroup
+    displayName: 'VM Resource Group (optional - will auto-detect)'
+    type: string
+    default: ''
+  
+  # Disk Modification Parameters
+  - name: diskOperation
+    displayName: 'Disk Operation (for disk-modify)'
+    type: string
+    default: 'add'
+    values:
+      - add
+      - resize
+      - delete
+  
+  - name: diskSizeGB
+    displayName: 'Disk Size in GB (for add/resize)'
+    type: number
+    default: 128
+  
+  - name: diskName
+    displayName: 'Disk Name (for resize/delete)'
+    type: string
+    default: ''
+  
+  - name: diskType
+    displayName: 'Disk Type (for add)'
+    type: string
+    default: 'Premium_LRS'
+    values:
+      - Standard_LRS
+      - StandardSSD_LRS
+      - Premium_LRS
+      - UltraSSD_LRS
+  
+  # SKU Change Parameters
+  - name: newVMSize
+    displayName: 'New VM Size (for sku-change)'
+    type: string
+    default: 'Standard_D2s_v3'
+    values:
+      - Standard_B2s
+      - Standard_B2ms
+      - Standard_D2s_v3
+      - Standard_D4s_v3
+      - Standard_D8s_v3
+      - Standard_E2s_v3
+      - Standard_E4s_v3
+      - Standard_F2s_v2
+      - Standard_F4s_v2
+  
+  # Backup/Restore Parameters
+  - name: backupAction
+    displayName: 'Backup Action (for backup-restore)'
+    type: string
+    default: 'restore'
+    values:
+      - restore
+      - list-recovery-points
+  
+  - name: recoveryPointId
+    displayName: 'Recovery Point ID (for restore)'
+    type: string
+    default: ''
+  
+  # Common Parameters
+  - name: serviceNowTicket
+    displayName: 'ServiceNow Ticket Number (required for prod)'
+    type: string
+    default: ''
+  
+  - name: reason
+    displayName: 'Reason for Change'
+    type: string
+    default: ''
+  
+  - name: autoApprove
+    displayName: 'Auto-approve (dev/uat only)'
+    type: boolean
+    default: false
+
+variables:
+  - group: vm-automation-secrets-${{ parameters.environment }}
+  - name: azureServiceConnection
+    value: 'azure-${{ parameters.environment }}-service-connection'
+  - name: workingDirectory
+    value: '$(System.DefaultWorkingDirectory)'
+  - name: environment
+    value: ${{ parameters.environment }}
+  - name: isProduction
+    value: ${{ eq(parameters.environment, 'prod') }}
+  - name: vmName
+    value: ${{ parameters.vmName }}
+  - name: operationType
+    value: ${{ parameters.operationType }}
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  # ========================================
+  # STAGE 1: Pre-Operation Validation
+  # ========================================
+  - stage: PreOperationValidation
+    displayName: 'Pre-Operation Validation'
+    jobs:
+      - job: ValidateOperation
+        displayName: 'Validate Operation and VM State'
+        steps:
+          - checkout: self
+          
+          - task: Bash@3
+            displayName: 'Validate Input Parameters'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "=============================================="
+                echo "Validating operation parameters"
+                echo "=============================================="
+                echo "Environment: ${{ parameters.environment }}"
+                echo "Operation Type: ${{ parameters.operationType }}"
+                echo "VM Name: ${{ parameters.vmName }}"
+                echo "=============================================="
+                
+                # Validate VM name provided
+                if [ -z "${{ parameters.vmName }}" ]; then
+                  echo "##vso[task.logissue type=error]VM Name is required"
+                  exit 1
+                fi
+                
+                # Validate ServiceNow ticket for production
+                if [ "${{ parameters.environment }}" == "prod" ] && [ -z "${{ parameters.serviceNowTicket }}" ]; then
+                  echo "##vso[task.logissue type=error]ServiceNow ticket required for production operations"
+                  exit 1
+                fi
+                
+                # Operation-specific validation
+                case "${{ parameters.operationType }}" in
+                  disk-modify)
+                    echo "Disk operation: ${{ parameters.diskOperation }}"
+                    if [ "${{ parameters.diskOperation }}" == "add" ] || [ "${{ parameters.diskOperation }}" == "resize" ]; then
+                      if [ ${{ parameters.diskSizeGB }} -lt 32 ]; then
+                        echo "##vso[task.logissue type=error]Disk size must be at least 32 GB"
+                        exit 1
+                      fi
+                    fi
+                    ;;
+                  sku-change)
+                    echo "New VM Size: ${{ parameters.newVMSize }}"
+                    if [ -z "${{ parameters.newVMSize }}" ]; then
+                      echo "##vso[task.logissue type=error]New VM size required for SKU change"
+                      exit 1
+                    fi
+                    ;;
+                  backup-restore)
+                    echo "Backup action: ${{ parameters.backupAction }}"
+                    if [ "${{ parameters.backupAction }}" == "restore" ] && [ -z "${{ parameters.recoveryPointId }}" ]; then
+                      echo "##vso[task.logissue type=error]Recovery point ID required for restore"
+                      exit 1
+                    fi
+                    ;;
+                esac
+                
+                echo "✅ Input parameters validated"
+          
+          - task: AzureCLI@2
+            displayName: 'Locate and Verify VM'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Locating VM: ${{ parameters.vmName }}"
+                
+                # Try to find VM
+                if [ -n "${{ parameters.vmResourceGroup }}" ]; then
+                  # RG provided
+                  RG="${{ parameters.vmResourceGroup }}"
+                  echo "Using provided resource group: $RG"
+                else
+                  # Auto-detect RG
+                  echo "Auto-detecting resource group..."
+                  RG=$(az vm list --query "[?name=='${{ parameters.vmName }}'].resourceGroup | [0]" -o tsv)
+                  
+                  if [ -z "$RG" ]; then
+                    echo "##vso[task.logissue type=error]VM not found: ${{ parameters.vmName }}"
+                    exit 1
+                  fi
+                  
+                  echo "Found VM in resource group: $RG"
+                fi
+                
+                # Get VM details
+                echo "Fetching VM details..."
+                VM_INFO=$(az vm show --name "${{ parameters.vmName }}" --resource-group "$RG")
+                
+                # Extract current state
+                POWER_STATE=$(az vm get-instance-view --name "${{ parameters.vmName }}" --resource-group "$RG" --query "instanceView.statuses[1].displayStatus" -o tsv)
+                CURRENT_SIZE=$(echo "$VM_INFO" | jq -r '.hardwareProfile.vmSize')
+                
+                echo "Current VM state:"
+                echo "  Power State: $POWER_STATE"
+                echo "  VM Size: $CURRENT_SIZE"
+                
+                # Store for later stages
+                echo "##vso[task.setvariable variable=vmResourceGroup;isOutput=true]$RG"
+                echo "##vso[task.setvariable variable=vmPowerState;isOutput=true]$POWER_STATE"
+                echo "##vso[task.setvariable variable=vmCurrentSize;isOutput=true]$CURRENT_SIZE"
+                
+                echo "✅ VM verified"
+            name: vmInfo
+          
+          - task: AzureCLI@2
+            displayName: 'Check VM Backup Configuration'
+            condition: eq('${{ parameters.operationType }}', 'backup-restore')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Checking backup configuration..."
+                
+                # Placeholder for backup check
+                # Will be implemented with Azure Backup integration in Phase 6
+                
+                echo "✅ Backup configuration verified (placeholder)"
+          
+          - task: Bash@3
+            displayName: 'ServiceNow Ticket Validation'
+            condition: ne('${{ parameters.serviceNowTicket }}', '')
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Validating ServiceNow ticket: ${{ parameters.serviceNowTicket }}"
+                
+                # Placeholder for ServiceNow validation
+                # Will be implemented in Phase 3
+                
+                echo "✅ ServiceNow ticket validated (placeholder)"
+
+  # ========================================
+  # STAGE 2: Operation Approval (Production)
+  # ========================================
+  - stage: OperationApproval
+    displayName: 'Operation Approval Gate'
+    dependsOn: PreOperationValidation
+    condition: and(succeeded(), eq(variables.isProduction, true), eq(${{ parameters.autoApprove }}, false))
+    jobs:
+      - job: WaitForApproval
+        displayName: 'Wait for Operation Approval'
+        pool: server
+        timeoutInMinutes: 1440
+        steps:
+          - task: ManualValidation@0
+            displayName: 'Approve VM Operation'
+            inputs:
+              notifyUsers: 'l2-approvers@yourdomain.com'
+              instructions: |
+                **VM Operation - Production Approval Required**
+                
+                **Operation Details:**
+                - Operation Type: ${{ parameters.operationType }}
+                - VM Name: ${{ parameters.vmName }}
+                - Environment: ${{ parameters.environment }}
+                - ServiceNow Ticket: ${{ parameters.serviceNowTicket }}
+                - Reason: ${{ parameters.reason }}
+                
+                **Operation-Specific Details:**
+                ${{ parameters.operationType }} operation details here
+                
+                **Review Checklist:**
+                1. Verify ServiceNow ticket approval
+                2. Confirm VM is correct
+                3. Review operation parameters
+                4. Check maintenance window
+                
+                Click **Approve** to proceed or **Reject** to cancel.
+              onTimeout: 'reject'
+
+  # ========================================
+  # STAGE 3: Disk Modification Operations
+  # ========================================
+  - stage: DiskModification
+    displayName: 'Disk Modification'
+    dependsOn:
+      - PreOperationValidation
+      - OperationApproval
+    condition: |
+      and(
+        eq('${{ parameters.operationType }}', 'disk-modify'),
+        eq(dependencies.PreOperationValidation.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            in(dependencies.OperationApproval.result, 'Succeeded', 'Skipped')
+          )
+        )
+      )
+    variables:
+      vmResourceGroup: $[ stageDependencies.PreOperationValidation.ValidateOperation.outputs['vmInfo.vmResourceGroup'] ]
+    jobs:
+      - job: ModifyDisk
+        displayName: 'Execute Disk Operation'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Add Data Disk'
+            condition: eq('${{ parameters.diskOperation }}', 'add')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Adding new data disk..."
+                echo "Size: ${{ parameters.diskSizeGB }} GB"
+                echo "Type: ${{ parameters.diskType }}"
+                
+                # Generate unique disk name
+                DISK_NAME="${{ parameters.vmName }}-data-$(date +%s)"
+                
+                echo "Creating disk: $DISK_NAME"
+                
+                az vm disk attach \
+                  --resource-group "$(vmResourceGroup)" \
+                  --vm-name "${{ parameters.vmName }}" \
+                  --name "$DISK_NAME" \
+                  --new \
+                  --size-gb ${{ parameters.diskSizeGB }} \
+                  --sku "${{ parameters.diskType }}"
+                
+                echo "✅ Disk added successfully: $DISK_NAME"
+          
+          - task: AzureCLI@2
+            displayName: 'Resize Data Disk'
+            condition: eq('${{ parameters.diskOperation }}', 'resize')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Resizing disk: ${{ parameters.diskName }}"
+                echo "New size: ${{ parameters.diskSizeGB }} GB"
+                
+                # Get current disk size
+                CURRENT_SIZE=$(az disk show --name "${{ parameters.diskName }}" --resource-group "$(vmResourceGroup)" --query "diskSizeGb" -o tsv)
+                
+                echo "Current size: $CURRENT_SIZE GB"
+                
+                if [ ${{ parameters.diskSizeGB }} -le $CURRENT_SIZE ]; then
+                  echo "##vso[task.logissue type=error]New size must be larger than current size"
+                  exit 1
+                fi
+                
+                # Resize disk
+                az disk update \
+                  --resource-group "$(vmResourceGroup)" \
+                  --name "${{ parameters.diskName }}" \
+                  --size-gb ${{ parameters.diskSizeGB }}
+                
+                echo "✅ Disk resized successfully"
+          
+          - task: AzureCLI@2
+            displayName: 'Delete Data Disk'
+            condition: eq('${{ parameters.diskOperation }}', 'delete')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "⚠️ Deleting disk: ${{ parameters.diskName }}"
+                
+                # Detach and delete
+                az vm disk detach \
+                  --resource-group "$(vmResourceGroup)" \
+                  --vm-name "${{ parameters.vmName }}" \
+                  --name "${{ parameters.diskName }}"
+                
+                echo "Disk detached, waiting 30 seconds..."
+                sleep 30
+                
+                az disk delete \
+                  --resource-group "$(vmResourceGroup)" \
+                  --name "${{ parameters.diskName }}" \
+                  --yes
+                
+                echo "✅ Disk deleted successfully"
+
+  # ========================================
+  # STAGE 4: SKU Change Operations
+  # ========================================
+  - stage: SKUChange
+    displayName: 'VM SKU Change'
+    dependsOn:
+      - PreOperationValidation
+      - OperationApproval
+    condition: |
+      and(
+        eq('${{ parameters.operationType }}', 'sku-change'),
+        eq(dependencies.PreOperationValidation.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            in(dependencies.OperationApproval.result, 'Succeeded', 'Skipped')
+          )
+        )
+      )
+    variables:
+      vmResourceGroup: $[ stageDependencies.PreOperationValidation.ValidateOperation.outputs['vmInfo.vmResourceGroup'] ]
+      vmCurrentSize: $[ stageDependencies.PreOperationValidation.ValidateOperation.outputs['vmInfo.vmCurrentSize'] ]
+    jobs:
+      - job: ChangeSKU
+        displayName: 'Execute SKU Change'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify SKU Compatibility'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Current VM Size: $(vmCurrentSize)"
+                echo "Target VM Size: ${{ parameters.newVMSize }}"
+                
+                if [ "$(vmCurrentSize)" == "${{ parameters.newVMSize }}" ]; then
+                  echo "##vso[task.logissue type=error]VM already using target size"
+                  exit 1
+                fi
+                
+                # Check if resize is available
+                LOCATION=$(az vm show --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)" --query "location" -o tsv)
+                
+                AVAILABLE=$(az vm list-sizes --location "$LOCATION" --query "[?name=='${{ parameters.newVMSize }}'].name" -o tsv)
+                
+                if [ -z "$AVAILABLE" ]; then
+                  echo "##vso[task.logissue type=error]VM size not available in region"
+                  exit 1
+                fi
+                
+                echo "✅ SKU change validated"
+          
+          - task: AzureCLI@2
+            displayName: 'Stop VM (if running)'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                POWER_STATE=$(az vm get-instance-view --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)" --query "instanceView.statuses[1].displayStatus" -o tsv)
+                
+                if [[ "$POWER_STATE" == *"running"* ]]; then
+                  echo "Stopping VM..."
+                  az vm deallocate --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)"
+                  echo "✅ VM stopped"
+                else
+                  echo "VM already stopped"
+                fi
+          
+          - task: AzureCLI@2
+            displayName: 'Resize VM'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Resizing VM to: ${{ parameters.newVMSize }}"
+                
+                az vm resize \
+                  --resource-group "$(vmResourceGroup)" \
+                  --name "${{ parameters.vmName }}" \
+                  --size "${{ parameters.newVMSize }}"
+                
+                echo "✅ VM resized successfully"
+          
+          - task: AzureCLI@2
+            displayName: 'Start VM'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Starting VM..."
+                
+                az vm start --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)"
+                
+                echo "✅ VM started successfully"
+
+  # ========================================
+  # STAGE 5: Backup/Restore Operations
+  # ========================================
+  - stage: BackupRestore
+    displayName: 'Backup/Restore Operations'
+    dependsOn:
+      - PreOperationValidation
+      - OperationApproval
+    condition: |
+      and(
+        eq('${{ parameters.operationType }}', 'backup-restore'),
+        eq(dependencies.PreOperationValidation.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            in(dependencies.OperationApproval.result, 'Succeeded', 'Skipped')
+          )
+        )
+      )
+    variables:
+      vmResourceGroup: $[ stageDependencies.PreOperationValidation.ValidateOperation.outputs['vmInfo.vmResourceGroup'] ]
+    jobs:
+      - job: BackupRestoreOperation
+        displayName: 'Execute Backup/Restore'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'List Recovery Points'
+            condition: eq('${{ parameters.backupAction }}', 'list-recovery-points')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Listing recovery points for VM: ${{ parameters.vmName }}"
+                
+                # Placeholder for recovery point listing
+                # Will be implemented with Azure Backup integration in Phase 6
+                
+                echo "✅ Recovery points listed (placeholder)"
+          
+          - task: AzureCLI@2
+            displayName: 'Restore from Recovery Point'
+            condition: eq('${{ parameters.backupAction }}', 'restore')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Restoring VM from recovery point: ${{ parameters.recoveryPointId }}"
+                
+                # Placeholder for VM restore
+                # Will be implemented with Azure Backup integration in Phase 6
+                
+                echo "✅ VM restored successfully (placeholder)"
+
+  # ========================================
+  # STAGE 6: Power Operations
+  # ========================================
+  - stage: PowerOperations
+    displayName: 'Power Operations'
+    dependsOn:
+      - PreOperationValidation
+      - OperationApproval
+    condition: |
+      and(
+        in('${{ parameters.operationType }}', 'power-start', 'power-stop', 'power-restart'),
+        eq(dependencies.PreOperationValidation.result, 'Succeeded'),
+        or(
+          eq(variables.isProduction, false),
+          and(
+            eq(variables.isProduction, true),
+            in(dependencies.OperationApproval.result, 'Succeeded', 'Skipped')
+          )
+        )
+      )
+    variables:
+      vmResourceGroup: $[ stageDependencies.PreOperationValidation.ValidateOperation.outputs['vmInfo.vmResourceGroup'] ]
+    jobs:
+      - job: PowerOperation
+        displayName: 'Execute Power Operation'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Start VM'
+            condition: eq('${{ parameters.operationType }}', 'power-start')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Starting VM: ${{ parameters.vmName }}"
+                
+                az vm start --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)"
+                
+                echo "✅ VM started successfully"
+          
+          - task: AzureCLI@2
+            displayName: 'Stop VM'
+            condition: eq('${{ parameters.operationType }}', 'power-stop')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Stopping VM: ${{ parameters.vmName }}"
+                
+                az vm deallocate --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)"
+                
+                echo "✅ VM stopped successfully"
+          
+          - task: AzureCLI@2
+            displayName: 'Restart VM'
+            condition: eq('${{ parameters.operationType }}', 'power-restart')
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Restarting VM: ${{ parameters.vmName }}"
+                
+                az vm restart --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)"
+                
+                echo "✅ VM restarted successfully"
+
+  # ========================================
+  # STAGE 7: Post-Operation Validation
+  # ========================================
+  - stage: PostOperationValidation
+    displayName: 'Post-Operation Validation'
+    dependsOn:
+      - DiskModification
+      - SKUChange
+      - BackupRestore
+      - PowerOperations
+    condition: |
+      or(
+        in(dependencies.DiskModification.result, 'Succeeded', 'Skipped'),
+        in(dependencies.SKUChange.result, 'Succeeded', 'Skipped'),
+        in(dependencies.BackupRestore.result, 'Succeeded', 'Skipped'),
+        in(dependencies.PowerOperations.result, 'Succeeded', 'Skipped')
+      )
+    jobs:
+      - job: ValidateOperation
+        displayName: 'Validate Operation Result'
+        variables:
+          vmResourceGroup: $[ stageDependencies.PreOperationValidation.ValidateOperation.outputs['vmInfo.vmResourceGroup'] ]
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Verify VM State'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                set -e
+                
+                echo "Verifying VM state after operation..."
+                
+                POWER_STATE=$(az vm get-instance-view --name "${{ parameters.vmName }}" --resource-group "$(vmResourceGroup)" --query "instanceView.statuses[1].displayStatus" -o tsv)
+                
+                echo "VM Power State: $POWER_STATE"
+                
+                echo "✅ VM state verified"
+          
+          - task: Bash@3
+            displayName: 'Generate Operation Report'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Generating operation report..."
+                
+                REPORT_FILE="deploy/docs/operations/op-${{ parameters.operationType }}-$(Build.BuildNumber).md"
+                mkdir -p "deploy/docs/operations"
+                
+                cat > "$REPORT_FILE" << EOF
+                # VM Operation Report
+                
+                **Operation ID**: $(Build.BuildId)
+                **Operation Type**: ${{ parameters.operationType }}
+                **VM Name**: ${{ parameters.vmName }}
+                **Environment**: ${{ parameters.environment }}
+                **ServiceNow Ticket**: ${{ parameters.serviceNowTicket }}
+                **Reason**: ${{ parameters.reason }}
+                **Executed**: $(date -Iseconds)
+                **Executed By**: $(Build.RequestedFor)
+                
+                ## Status
+                ✅ Operation completed successfully
+                
+                ---
+                *Auto-generated by Azure DevOps Pipeline*
+                EOF
+                
+                echo "✅ Operation report created"
+
+  # ========================================
+  # STAGE 8: Notification
+  # ========================================
+  - stage: Notification
+    displayName: 'Notification'
+    dependsOn: PostOperationValidation
+    condition: succeeded()
+    jobs:
+      - job: SendNotification
+        displayName: 'Send Operation Notification'
+        steps:
+          - task: Bash@3
+            displayName: 'Update ServiceNow Ticket'
+            condition: ne('${{ parameters.serviceNowTicket }}', '')
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Updating ServiceNow ticket: ${{ parameters.serviceNowTicket }}"
+                
+                # Placeholder for ServiceNow update
+                # Will be implemented in Phase 3
+                
+                echo "✅ ServiceNow ticket updated (placeholder)"
+          
+          - task: Bash@3
+            displayName: 'Send Email Notification'
+            inputs:
+              targetType: 'inline'
+              script: |
+                set -e
+                
+                echo "Sending operation notification..."
+                
+                # Placeholder for email notification
+                
+                echo "✅ Notification sent (placeholder)"

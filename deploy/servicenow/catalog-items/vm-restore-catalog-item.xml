@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<record_update table="sc_cat_item">
+    <sc_cat_item action="INSERT_OR_UPDATE">
+        <active>true</active>
+        <availability>on_desktop</availability>
+        <category display_value="Cloud Services">azure_cloud_services</category>
+        <description><![CDATA[
+            <p><strong>⚠️ CRITICAL OPERATION - VM RESTORE ⚠️</strong></p>
+            <p>Restore an Azure Virtual Machine from a snapshot or Azure Backup recovery point.</p>
+            <p><strong>Restore Options:</strong></p>
+            <ul>
+                <li><strong>Snapshot Restore:</strong> Restore from disk snapshot (fastest, 15-30 min)</li>
+                <li><strong>Backup Restore:</strong> Restore from Azure Recovery Services Vault (30-60 min)</li>
+                <li><strong>Create New:</strong> Create new VM from snapshot (no downtime to existing VM)</li>
+            </ul>
+            <p><strong>⚠️ CRITICAL WARNINGS:</strong></p>
+            <ul>
+                <li>All changes after the snapshot/backup point WILL BE LOST</li>
+                <li>This operation is IRREVERSIBLE without manual intervention</li>
+                <li>Pre-restore safety snapshot is automatically created</li>
+                <li>L2 approval required</li>
+            </ul>
+        ]]></description>
+        <name>Azure VM - Restore from Snapshot/Backup</name>
+        <short_description>Restore VM from snapshot or Azure Backup (CRITICAL OPERATION)</short_description>
+        <workflow display_value="VM Restore Workflow">vm_restore_workflow</workflow>
+        <flow_designer_flow display_value="">flow_vm_restore</flow_designer_flow>
+        <sys_id>vm_restore_catalog_item_001</sys_id>
+        <sys_created_on>2025-10-07 00:00:00</sys_created_on>
+    </sc_cat_item>
+    
+    <!-- VARIABLES -->
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="VM Name">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>vm_name</name>
+            <order>10</order>
+            <question_text>Virtual Machine Name (to restore)</question_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Resource Group">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>resource_group</name>
+            <order>20</order>
+            <question_text>Resource Group Name</question_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Restore Type">
+            <active>true</active>
+            <default_value>snapshot</default_value>
+            <mandatory>true</mandatory>
+            <name>restore_type</name>
+            <order>30</order>
+            <question_text>Restore Type</question_text>
+            <type>8</type>
+            <choice_list>snapshot,backup,create-new</choice_list>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Snapshot Name">
+            <active>true</active>
+            <mandatory>false</mandatory>
+            <name>snapshot_name</name>
+            <order>40</order>
+            <question_text>Snapshot Name (for snapshot restore)</question_text>
+            <help_text>Leave empty to list available snapshots</help_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Recovery Point ID">
+            <active>true</active>
+            <mandatory>false</mandatory>
+            <name>recovery_point_id</name>
+            <order>50</order>
+            <question_text>Recovery Point ID (for backup restore)</question_text>
+            <help_text>Leave empty to list available recovery points</help_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Target VM Name">
+            <active>true</active>
+            <mandatory>false</mandatory>
+            <name>target_vm_name</name>
+            <order>60</order>
+            <question_text>Target VM Name (for create-new restore)</question_text>
+            <help_text>Only required if creating new VM</help_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Overwrite Existing">
+            <active>true</active>
+            <default_value>false</default_value>
+            <mandatory>true</mandatory>
+            <name>overwrite_existing</name>
+            <order>70</order>
+            <question_text>Overwrite Existing VM (for snapshot restore)</question_text>
+            <help_text>⚠️ WARNING: Existing data will be lost</help_text>
+            <type>3</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Incident Number">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>incident_number</name>
+            <order>80</order>
+            <question_text>Related Incident Number</question_text>
+            <help_text>INC number justifying the restore</help_text>
+            <type>1</type>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Business Impact">
+            <active>true</active>
+            <mandatory>true</mandatory>
+            <name>business_impact</name>
+            <order>90</order>
+            <question_text>Business Impact / Justification</question_text>
+            <help_text>Explain the business impact and why restore is necessary</help_text>
+            <type>6</type>
+            <max_length>2000</max_length>
+        </item_option_new>
+    </sc_cat_item_option>
+    
+    <sc_cat_item_option action="INSERT_OR_UPDATE">
+        <item_option_new display_value="Data Loss Acknowledged">
+            <active>true</active>
+            <default_value>false</default_value>
+            <mandatory>true</mandatory>
+            <name>data_loss_acknowledged</name>
+            <order>100</order>
+            <question_text>I acknowledge that all data after the restore point will be lost</question_text>
+            <type>3</type>
+        </item_option_new>
+    </sc_cat_item_option>
+</record_update>

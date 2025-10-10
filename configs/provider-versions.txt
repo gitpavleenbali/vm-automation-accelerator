@@ -1,0 +1,4 @@
+azurerm = "~> 3.80"
+random  = "~> 3.5"
+azapi   = "~> 1.10"
+azuread = "~> 2.45"
