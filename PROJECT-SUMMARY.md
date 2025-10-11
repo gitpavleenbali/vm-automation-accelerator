@@ -129,7 +129,7 @@ Self-service VM operations:
 - Post-deployment verification
 - Notification and ticketing
 
-#### Python Integration (`scripts/python/`)
+#### Python Integration (`deploy/scripts/utilities/servicenow/`)
 **`servicenow_client.py`** (350+ lines)
 - REST API wrapper for ServiceNow
 - Catalog item automation
@@ -165,7 +165,7 @@ Self-service VM operations:
 - Cost trends and forecasts
 - Resource utilization metrics
 
-#### Compliance Scripts (`scripts/powershell/`)
+#### Compliance Scripts (`deploy/scripts/utilities/vm-operations/compliance/`)
 **`Generate-ComplianceReport.ps1`** (450+ lines)
 - Automated compliance reporting
 - Policy violation detection
@@ -571,7 +571,7 @@ Replace the following generic placeholders throughout the repository:
 2. **`pipelines/azure-devops/*.yml`** → Update service connections and variable groups
 3. **`servicenow/catalog-items/*.xml`** → Update instance URLs and scopes
 4. **`governance/policies/*.json`** → Adjust policies for your requirements
-5. **`scripts/powershell/*.ps1`** → Update organization-specific values
+5. **`deploy/scripts/utilities/**/*.ps1`** → Update organization-specific values
 
 ---
 

@@ -370,7 +370,7 @@ terraform apply tfplan
 
 ```bash
 # Validate quota
-pwsh scripts/powershell/Validate-Quota.ps1 -VMSize "Standard_D4s_v3"
+pwsh deploy/scripts/utilities/cost-management/Validate-Quota.ps1 -VMSize "Standard_D4s_v3"
 
 # Generate plan
 terraform plan -var-file="terraform.tfvars" -out=tfplan

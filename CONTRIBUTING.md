@@ -114,7 +114,7 @@ terraform plan -var-file="environments/dev.tfvars"
 ```powershell
 # Run PSScriptAnalyzer
 Install-Module -Name PSScriptAnalyzer -Force
-Invoke-ScriptAnalyzer -Path scripts/powershell/Your-Script.ps1
+Invoke-ScriptAnalyzer -Path deploy/scripts/utilities/vm-operations/security/Your-Script.ps1
 
 # Run Pester tests (if available)
 Invoke-Pester
@@ -127,7 +127,7 @@ Invoke-Pester
 pip install -r requirements-dev.txt
 
 # Run linting
-pylint scripts/python/your_script.py
+pylint deploy/scripts/utilities/servicenow/your_script.py
 
 # Run tests
 pytest tests/
