@@ -108,7 +108,6 @@ module "naming" {
   project_code     = local.project.code
   workload_name    = "control"
   instance_number  = "01"
-  random_suffix    = local.random_id
   
   resource_prefixes = {
     resource_group  = "rg"

@@ -226,10 +226,10 @@ resource "azurerm_route_table" "rt" {
     if subnet_config.create_route_table
   }
   
-  name                          = each.value.route_table_name
-  location                      = var.location
-  resource_group_name           = var.resource_group_name
-  disable_bgp_route_propagation = var.disable_bgp_route_propagation
+  name                              = each.value.route_table_name
+  location                          = var.location
+  resource_group_name               = var.resource_group_name
+  bgp_route_propagation_enabled     = !var.disable_bgp_route_propagation
   
   tags = each.value.tags
 }
@@ -264,8 +264,9 @@ resource "azurerm_subnet" "subnet" {
   address_prefixes     = each.value.address_prefixes
   service_endpoints    = each.value.service_endpoints
   
-  private_endpoint_network_policies_enabled     = each.value.private_endpoint_network_policies_enabled
-  private_link_service_network_policies_enabled = each.value.private_link_service_network_policies_enabled
+  # Updated from deprecated boolean attributes
+  private_endpoint_network_policies          = each.value.private_endpoint_network_policies_enabled != null ? (each.value.private_endpoint_network_policies_enabled ? "Enabled" : "Disabled") : "Disabled"
+  private_link_service_network_policies_enabled = each.value.private_link_service_network_policies_enabled != null ? each.value.private_link_service_network_policies_enabled : true
   
   dynamic "delegation" {
     for_each = each.value.delegation != null ? [each.value.delegation] : []

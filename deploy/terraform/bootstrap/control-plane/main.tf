@@ -117,7 +117,7 @@ resource "azurerm_storage_account" "tfstate" {
 
 resource "azurerm_storage_container" "tfstate" {
   name                  = var.tfstate_container_name
-  storage_account_name  = azurerm_storage_account.tfstate.name
+  storage_account_id    = azurerm_storage_account.tfstate.id
   container_access_type = "private"
 }
 
@@ -133,7 +133,6 @@ resource "azurerm_key_vault" "control_plane" {
   sku_name                    = var.key_vault_sku
   soft_delete_retention_days  = var.soft_delete_retention_days
   purge_protection_enabled    = var.enable_purge_protection
-  enable_rbac_authorization   = true
   
   network_acls {
     default_action = length(var.allowed_ip_ranges) > 0 ? "Deny" : "Allow"

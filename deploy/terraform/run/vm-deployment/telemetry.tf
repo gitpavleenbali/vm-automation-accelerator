@@ -64,7 +64,7 @@ resource "local_file" "deployment_record" {
     terraform_version = terraform.version
     
     # Resource counts
-    vm_count          = length(var.vms)
+    vm_count          = length(var.linux_vms) + length(var.windows_vms)
     
     # Configuration summary
     features = {

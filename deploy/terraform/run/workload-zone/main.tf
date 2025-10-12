@@ -287,8 +287,9 @@ resource "azurerm_subnet" "workload_zone" {
   address_prefixes     = [each.value.address_prefix]
   service_endpoints    = each.value.service_endpoints
   
-  private_endpoint_network_policies_enabled = each.value.private_endpoint_network_policies_enabled
-  private_link_service_network_policies_enabled = each.value.private_link_service_network_policies_enabled
+  # Updated from deprecated boolean attributes to new string attributes
+  private_endpoint_network_policies          = each.value.private_endpoint_network_policies_enabled != null ? (each.value.private_endpoint_network_policies_enabled ? "Enabled" : "Disabled") : "Disabled"
+  private_link_service_network_policies_enabled = each.value.private_link_service_network_policies_enabled != null ? each.value.private_link_service_network_policies_enabled : true
   
   dynamic "delegation" {
     for_each = each.value.delegation != null ? [each.value.delegation] : []

@@ -219,10 +219,10 @@ resource "azurerm_public_ip" "vm_pip" {
 resource "azurerm_network_interface" "vm_nic" {
   for_each = local.normalized_vms
   
-  name                          = "${each.value.vm_name}-nic"
-  location                      = var.location
-  resource_group_name           = var.resource_group_name
-  enable_accelerated_networking = each.value.enable_accelerated_networking
+  name                           = "${each.value.vm_name}-nic"
+  location                       = var.location
+  resource_group_name            = var.resource_group_name
+  accelerated_networking_enabled = each.value.enable_accelerated_networking
   
   ip_configuration {
     name                          = "internal"

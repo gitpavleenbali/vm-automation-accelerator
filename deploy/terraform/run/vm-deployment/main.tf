@@ -43,7 +43,6 @@ provider "azurerm" {
     }
     virtual_machine {
       delete_os_disk_on_deletion     = true
-      graceful_shutdown              = false
       skip_shutdown_and_force_delete = false
     }
   }
@@ -59,7 +58,6 @@ provider "azurerm" {
     }
     virtual_machine {
       delete_os_disk_on_deletion     = true
-      graceful_shutdown              = false
       skip_shutdown_and_force_delete = false
     }
   }
@@ -223,10 +221,10 @@ resource "azurerm_network_interface" "linux_vms" {
   for_each = local.linux_vms
   provider = azurerm.main
   
-  name                          = "${module.naming.vm_names["linux"][0]}-${each.key}-nic"
-  resource_group_name           = local.resource_group_name
-  location                      = local.resource_group_location
-  enable_accelerated_networking = each.value.enable_accelerated_networking
+  name                             = "${module.naming.vm_names["linux"][0]}-${each.key}-nic"
+  resource_group_name              = local.resource_group_name
+  location                         = local.resource_group_location
+  accelerated_networking_enabled   = each.value.enable_accelerated_networking
   
   ip_configuration {
     name                          = "ipconfig1"
@@ -255,10 +253,10 @@ resource "azurerm_network_interface" "windows_vms" {
   for_each = local.windows_vms
   provider = azurerm.main
   
-  name                          = "${module.naming.vm_names["windows"][0]}-${each.key}-nic"
-  resource_group_name           = local.resource_group_name
-  location                      = local.resource_group_location
-  enable_accelerated_networking = each.value.enable_accelerated_networking
+  name                             = "${module.naming.vm_names["windows"][0]}-${each.key}-nic"
+  resource_group_name              = local.resource_group_name
+  location                         = local.resource_group_location
+  accelerated_networking_enabled   = each.value.enable_accelerated_networking
   
   ip_configuration {
     name                          = "ipconfig1"
