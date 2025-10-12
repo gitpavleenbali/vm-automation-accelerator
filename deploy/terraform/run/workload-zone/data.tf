@@ -40,19 +40,5 @@ data "azurerm_resource_group" "existing" {
 # ============================================================================
 # Outputs from Control Plane Remote State
 # ============================================================================
+# NOTE: These values are now in transform.tf as locals for better organization
 
-locals {
-  # Control plane outputs
-  control_plane_subscription_id      = data.terraform_remote_state.control_plane.outputs.subscription_id
-  control_plane_resource_group       = data.terraform_remote_state.control_plane.outputs.resource_group_name
-  control_plane_key_vault_name       = data.terraform_remote_state.control_plane.outputs.key_vault_name
-  control_plane_key_vault_id         = data.terraform_remote_state.control_plane.outputs.key_vault_id
-  control_plane_random_id            = data.terraform_remote_state.control_plane.outputs.random_id
-  control_plane_backend_config       = data.terraform_remote_state.control_plane.outputs.backend_config
-  
-  # State storage information
-  state_storage_subscription_id      = local.control_plane_backend_config.subscription_id
-  state_storage_resource_group       = local.control_plane_backend_config.resource_group_name
-  state_storage_account_name         = local.control_plane_backend_config.storage_account_name
-  state_storage_container_name       = local.control_plane_backend_config.container_name
-}

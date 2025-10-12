@@ -65,11 +65,11 @@ provider "azapi" {
 module "naming" {
   source = "../../terraform-units/modules/naming"
   
-  environment      = local.environment.name
-  location         = local.location.name
-  project_code     = local.project.code
-  workload_name    = local.workload.name
-  instance_number  = local.workload.instance_number
+  environment      = var.environment
+  location         = var.location
+  project_code     = var.project_code
+  workload_name    = var.workload_name
+  instance_number  = var.instance_number
   
   resource_prefixes = {
     resource_group  = "rg"
@@ -93,26 +93,12 @@ module "naming" {
 # ============================================================================
 
 resource "azurerm_resource_group" "workload_zone" {
-  count    = local.resource_group.use_existing ? 0 : 1
+  count    = var.resource_group_name != null ? 0 : 1
   provider = azurerm.main
   
-  name     = coalesce(local.resource_group.name, module.naming.resource_group_name)
-  location = local.resource_group.location
-  tags     = local.resource_group.tags
-}
-
-locals {
-  resource_group_name = local.resource_group.use_existing ? (
-    data.azurerm_resource_group.existing[0].name
-  ) : (
-    azurerm_resource_group.workload_zone[0].name
-  )
-  
-  resource_group_location = local.resource_group.use_existing ? (
-    data.azurerm_resource_group.existing[0].location
-  ) : (
-    azurerm_resource_group.workload_zone[0].location
-  )
+  name     = module.naming.resource_group_name
+  location = var.location
+  tags     = merge(local.common_tags, { Purpose = "Network Infrastructure" })
 }
 
 # ============================================================================
@@ -120,7 +106,7 @@ locals {
 # ============================================================================
 
 resource "azurerm_network_ddos_protection_plan" "workload_zone" {
-  count               = local.computed.create_ddos_plan ? 1 : 0
+  count               = var.enable_ddos_protection && var.ddos_protection_plan_id == null ? 1 : 0
   provider            = azurerm.main
   
   name                = "${module.naming.resource_group_name}-ddos"
@@ -135,13 +121,6 @@ resource "azurerm_network_ddos_protection_plan" "workload_zone" {
   depends_on = [azurerm_resource_group.workload_zone]
 }
 
-locals {
-  ddos_protection_plan = local.vnet.enable_ddos_protection ? {
-    id     = local.computed.use_existing_ddos ? local.vnet.ddos_protection_plan_id : azurerm_network_ddos_protection_plan.workload_zone[0].id
-    enable = true
-  } : null
-}
-
 # ============================================================================
 # Virtual Network
 # ============================================================================
@@ -152,18 +131,24 @@ resource "azurerm_virtual_network" "workload_zone" {
   name                = module.naming.vnet_name
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
-  address_space       = local.vnet.address_space
-  dns_servers         = local.vnet.dns_servers
+  address_space       = var.vnet_address_space
+  dns_servers         = var.dns_servers
   
   dynamic "ddos_protection_plan" {
-    for_each = local.ddos_protection_plan != null ? [local.ddos_protection_plan] : []
+    for_each = var.enable_ddos_protection ? [1] : []
     content {
-      id     = ddos_protection_plan.value.id
-      enable = ddos_protection_plan.value.enable
+      id     = var.ddos_protection_plan_id != null ? var.ddos_protection_plan_id : azurerm_network_ddos_protection_plan.workload_zone[0].id
+      enable = true
     }
   }
   
-  tags = local.vnet.tags
+  tags = merge(
+    local.common_tags,
+    {
+      Purpose     = "Virtual Network"
+      Criticality = var.environment == "prod" ? "Critical" : "Medium"
+    }
+  )
   
   depends_on = [
     azurerm_resource_group.workload_zone,
@@ -176,23 +161,23 @@ resource "azurerm_virtual_network" "workload_zone" {
 # ============================================================================
 
 resource "azurerm_network_security_group" "subnets" {
-  for_each = local.nsg.enabled ? local.subnets : {}
+  for_each = var.enable_nsg ? var.subnets : {}
   provider = azurerm.main
   
   name                = "${module.naming.nsg_name}-${each.key}"
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   
-  tags = local.nsg.tags
+  tags = merge(local.common_tags, { Purpose = "Network Security" })
   
   depends_on = [azurerm_resource_group.workload_zone]
 }
 
 # Custom NSG Rules
 resource "azurerm_network_security_rule" "custom" {
-  for_each = local.nsg.enabled ? {
+  for_each = var.enable_nsg ? {
     for rule in flatten([
-      for subnet_name, rules in local.nsg.rules : [
+      for subnet_name, rules in var.nsg_rules : [
         for rule in rules : {
           key                        = "${subnet_name}-${rule.name}"
           subnet_name                = subnet_name
@@ -232,23 +217,23 @@ resource "azurerm_network_security_rule" "custom" {
 # ============================================================================
 
 resource "azurerm_route_table" "subnets" {
-  for_each = local.route_table.enabled ? local.subnets : {}
+  for_each = var.enable_route_table ? var.subnets : {}
   provider = azurerm.main
   
   name                = "${module.naming.route_table_name}-${each.key}"
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   
-  tags = local.route_table.tags
+  tags = merge(local.common_tags, { Purpose = "Network Routing" })
   
   depends_on = [azurerm_resource_group.workload_zone]
 }
 
 # Custom Routes
 resource "azurerm_route" "custom" {
-  for_each = local.route_table.enabled ? {
+  for_each = var.enable_route_table ? {
     for route in flatten([
-      for subnet_name, routes in local.route_table.routes : [
+      for subnet_name, routes in var.routes : [
         for route in routes : {
           key                    = "${subnet_name}-${route.name}"
           subnet_name            = subnet_name
@@ -278,7 +263,7 @@ resource "azurerm_route" "custom" {
 # ============================================================================
 
 resource "azurerm_subnet" "workload_zone" {
-  for_each = local.subnets
+  for_each = var.subnets
   provider = azurerm.main
   
   name                 = "${module.naming.subnet_name}-${each.key}"
@@ -309,7 +294,7 @@ resource "azurerm_subnet" "workload_zone" {
 
 # Associate NSGs with Subnets
 resource "azurerm_subnet_network_security_group_association" "workload_zone" {
-  for_each = local.nsg.enabled ? local.subnets : {}
+  for_each = var.enable_nsg ? var.subnets : {}
   provider = azurerm.main
   
   subnet_id                 = azurerm_subnet.workload_zone[each.key].id
@@ -323,7 +308,7 @@ resource "azurerm_subnet_network_security_group_association" "workload_zone" {
 
 # Associate Route Tables with Subnets
 resource "azurerm_subnet_route_table_association" "workload_zone" {
-  for_each = local.route_table.enabled ? local.subnets : {}
+  for_each = var.enable_route_table ? var.subnets : {}
   provider = azurerm.main
   
   subnet_id      = azurerm_subnet.workload_zone[each.key].id
@@ -340,18 +325,18 @@ resource "azurerm_subnet_route_table_association" "workload_zone" {
 # ============================================================================
 
 resource "azurerm_virtual_network_peering" "workload_zone_to_remote" {
-  count                        = local.peering.enabled && local.peering.config != null ? 1 : 0
+  count                        = var.enable_vnet_peering && var.peering_config != null ? 1 : 0
   provider                     = azurerm.main
   
   name                         = "${azurerm_virtual_network.workload_zone.name}-to-remote"
   resource_group_name          = local.resource_group_name
   virtual_network_name         = azurerm_virtual_network.workload_zone.name
-  remote_virtual_network_id    = local.peering.config.remote_vnet_id
+  remote_virtual_network_id    = var.peering_config.remote_vnet_id
   
-  allow_virtual_network_access = local.peering.config.allow_virtual_network_access
-  allow_forwarded_traffic      = local.peering.config.allow_forwarded_traffic
-  allow_gateway_transit        = local.peering.config.allow_gateway_transit
-  use_remote_gateways          = local.peering.config.use_remote_gateways
+  allow_virtual_network_access = var.peering_config.allow_virtual_network_access
+  allow_forwarded_traffic      = var.peering_config.allow_forwarded_traffic
+  allow_gateway_transit        = var.peering_config.allow_gateway_transit
+  use_remote_gateways          = var.peering_config.use_remote_gateways
   
   depends_on = [azurerm_virtual_network.workload_zone]
 }
@@ -361,19 +346,19 @@ resource "azurerm_virtual_network_peering" "workload_zone_to_remote" {
 # ============================================================================
 
 resource "azurerm_private_dns_zone" "workload_zone" {
-  for_each = local.private_dns.enabled ? toset(local.private_dns.zones) : []
+  for_each = var.enable_private_dns_zones ? toset(var.private_dns_zones) : []
   provider = azurerm.main
   
   name                = each.value
   resource_group_name = local.resource_group_name
   
-  tags = local.private_dns.tags
+  tags = merge(local.common_tags, { Purpose = "Private DNS" })
   
   depends_on = [azurerm_resource_group.workload_zone]
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "workload_zone" {
-  for_each = local.private_dns.enabled ? toset(local.private_dns.zones) : []
+  for_each = var.enable_private_dns_zones ? toset(var.private_dns_zones) : []
   provider = azurerm.main
   
   name                  = "${azurerm_virtual_network.workload_zone.name}-link"
@@ -381,7 +366,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "workload_zone" {
   private_dns_zone_name = azurerm_private_dns_zone.workload_zone[each.key].name
   virtual_network_id    = azurerm_virtual_network.workload_zone.id
   
-  tags = local.private_dns.tags
+  tags = merge(local.common_tags, { Purpose = "Private DNS" })
   
   depends_on = [
     azurerm_private_dns_zone.workload_zone,
@@ -394,10 +379,10 @@ resource "azurerm_private_dns_zone_virtual_network_link" "workload_zone" {
 # ============================================================================
 
 resource "azurerm_resource_group_template_deployment" "workload_zone" {
-  count               = local.computed.create_arm_tracking ? 1 : 0
+  count               = var.enable_arm_deployment_tracking ? 1 : 0
   provider            = azurerm.main
   
-  name                = "vm-automation-workload-zone-${local.deployment.id}"
+  name                = "vm-automation-workload-zone-${formatdate("YYYYMMDDhhmmss", timestamp())}"
   resource_group_name = local.resource_group_name
   deployment_mode     = "Incremental"
   
@@ -408,11 +393,11 @@ resource "azurerm_resource_group_template_deployment" "workload_zone" {
     outputs = {
       deploymentType = {
         type  = "string"
-        value = local.deployment.type
+        value = "run-workload-zone"
       }
       frameworkVersion = {
         type  = "string"
-        value = local.deployment.framework_version
+        value = var.automation_version
       }
       vnetId = {
         type  = "string"
@@ -420,7 +405,7 @@ resource "azurerm_resource_group_template_deployment" "workload_zone" {
       }
       subnetCount = {
         type  = "int"
-        value = length(local.subnets)
+        value = length(var.subnets)
       }
     }
   })
