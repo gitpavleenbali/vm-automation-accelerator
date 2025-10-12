@@ -40,19 +40,13 @@ provider "azurerm" {
 # Get current client configuration
 data "azurerm_client_config" "current" {}
 
-# Get existing resource group if specified
-data "azurerm_resource_group" "existing" {
-  count = local.resource_group.use_existing ? 1 : 0
-  name  = local.resource_group.name
-}
-
 # Generate random ID for globally unique resources
 resource "random_id" "unique" {
   byte_length = 4
 }
 
 locals {
-  random_id = var.random_id != "" ? var.random_id : random_id.unique.hex
+  random_id       = var.random_id != "" ? var.random_id : random_id.unique.hex
   subscription_id = var.subscription_id != "" ? var.subscription_id : data.azurerm_client_config.current.subscription_id
 }
 
@@ -77,7 +71,7 @@ resource "azurerm_resource_group" "control_plane" {
   count    = var.create_resource_group ? 1 : 0
   name     = var.resource_group_name != "" ? var.resource_group_name : module.naming.resource_group_names["main"]
   location = var.location
-  tags     = module.naming.common_tags
+  tags     = local.common_tags
 }
 
 data "azurerm_resource_group" "control_plane" {
@@ -114,7 +108,7 @@ resource "azurerm_storage_account" "tfstate" {
   }
   
   tags = merge(
-    module.naming.common_tags,
+    local.common_tags,
     {
       Purpose = "Terraform State Storage"
     }
@@ -148,7 +142,7 @@ resource "azurerm_key_vault" "control_plane" {
   }
   
   tags = merge(
-    module.naming.common_tags,
+    local.common_tags,
     {
       Purpose = "Control Plane Secrets"
     }
@@ -187,5 +181,5 @@ resource "azurerm_resource_group_template_deployment" "control_plane" {
     "resources" = []
   })
   
-  tags = module.naming.common_tags
+  tags = local.common_tags
 }
