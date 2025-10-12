@@ -205,3 +205,21 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "enable_purge_protection" {
+  description = "Enable purge protection for Key Vault"
+  type        = bool
+  default     = true
+}
+
+variable "enable_soft_delete" {
+  description = "Enable soft delete for Key Vault"
+  type        = bool
+  default     = true
+}
+
+variable "create_resource_group" {
+  description = "Create new resource group (true) or use existing (false)"
+  type        = bool
+  default     = true
+}

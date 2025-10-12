@@ -42,8 +42,8 @@ provider "azurerm" {
       prevent_deletion_if_contains_resources = false
     }
     key_vault {
-      purge_soft_delete_on_destroy    = !local.key_vault.enable_purge_protection
-      recover_soft_deleted_key_vaults = true
+      purge_soft_delete_on_destroy    = !var.enable_purge_protection
+      recover_soft_deleted_key_vaults = var.enable_soft_delete
     }
   }
   
@@ -57,8 +57,8 @@ provider "azurerm" {
       prevent_deletion_if_contains_resources = false
     }
     key_vault {
-      purge_soft_delete_on_destroy    = !local.key_vault.enable_purge_protection
-      recover_soft_deleted_key_vaults = true
+      purge_soft_delete_on_destroy    = !var.enable_purge_protection
+      recover_soft_deleted_key_vaults = var.enable_soft_delete
     }
   }
   
@@ -103,11 +103,12 @@ locals {
 module "naming" {
   source = "../../terraform-units/modules/naming"
   
-  environment      = local.environment.name
-  location         = local.location.name
-  project_code     = local.project.code
+  environment      = var.environment
+  location         = var.location
+  project_code     = var.project_code
   workload_name    = "control"
   instance_number  = "01"
+  random_id        = ""
   
   resource_prefixes = {
     resource_group  = "rg"
@@ -159,26 +160,26 @@ resource "azurerm_storage_account" "tfstate" {
   name                     = module.naming.storage_account_names["main"]
   resource_group_name      = local.resource_group_name
   location                 = local.resource_group_location
-  account_tier             = local.state_storage.account.tier
-  account_replication_type = local.state_storage.account.replication
-  access_tier              = local.state_storage.account.access_tier
+  account_tier             = var.state_storage_account_tier
+  account_replication_type = var.state_storage_account_replication
+  access_tier              = "Hot"
   
-  enable_https_traffic_only = local.state_storage.account.https_only
-  min_tls_version          = local.state_storage.account.min_tls_version
+  https_traffic_only_enabled = true
+  min_tls_version            = "TLS1_2"
   
   blob_properties {
-    versioning_enabled = local.state_storage.account.enable_versioning
+    versioning_enabled = true
     
     delete_retention_policy {
-      days = local.state_storage.account.blob_retention_days
+      days = 30
     }
     
     container_delete_retention_policy {
-      days = local.state_storage.account.container_retention_days
+      days = 30
     }
   }
   
-  tags = local.state_storage.tags
+  tags = local.common_tags
   
   depends_on = [azurerm_resource_group.control_plane]
 }
@@ -187,9 +188,9 @@ resource "azurerm_storage_account" "tfstate" {
 resource "azurerm_storage_container" "tfstate" {
   provider = azurerm.main
   
-  name                  = local.state_storage.container.name
-  storage_account_name  = azurerm_storage_account.tfstate.name
-  container_access_type = local.state_storage.container.access_type
+  name                  = var.state_storage_container_name
+  storage_account_id    = azurerm_storage_account.tfstate.id
+  container_access_type = "private"
 }
 
 # ============================================================================
