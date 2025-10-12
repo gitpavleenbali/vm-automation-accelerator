@@ -1,53 +1,384 @@
-# Contributing to VM Automation Accelerator
+# Contributing Guide
 
-First off, thank you for considering contributing to the VM Automation Accelerator! It's people like you that make this solution better for the Azure community.
+Thank you for your interest in contributing to the Azure VM Automation Accelerator. This guide outlines the processes and standards for contributing to this enterprise infrastructure automation platform.
 
-## 📋 Table of Contents
+---
 
-- [How Can I Contribute?](#how-can-i-contribute)
-- [Development Setup](#development-setup)
+## Table of Contents
+
+- [How to Contribute](#how-to-contribute)
+- [Development Environment](#development-environment)
+- [Code Standards](#code-standards)
 - [Pull Request Process](#pull-request-process)
-- [Style Guidelines](#style-guidelines)
-- [Community](#community)
+- [Issue Guidelines](#issue-guidelines)
+- [Community Guidelines](#community-guidelines)
 
-## 🤝 How Can I Contribute?
+---
 
-### Reporting Bugs
+## How to Contribute
 
-Before creating bug reports, please check existing issues to avoid duplicates. When you create a bug report, include as many details as possible:
+### Types of Contributions
 
-- **Use a clear and descriptive title**
-- **Describe the exact steps to reproduce the problem**
-- **Provide specific examples** (code snippets, configuration files)
-- **Describe the behavior you observed** and what you expected
-- **Include logs, error messages, or screenshots**
-- **Specify your environment**: Azure region, subscription type, OS version, etc.
+We welcome several types of contributions:
 
-#### Bug Report Template
+| Contribution Type | Description | Requirements |
+|------------------|-------------|--------------|
+| **Bug Reports** | Report issues with existing functionality | Detailed reproduction steps, environment details |
+| **Feature Requests** | Propose new capabilities or enhancements | Business justification, technical requirements |
+| **Code Contributions** | Submit code improvements or new features | Code review, testing, documentation |
+| **Documentation** | Improve existing documentation or add new content | Technical accuracy, clarity, consistency |
+| **Infrastructure** | Enhance Terraform modules or deployment scripts | Testing in multiple environments, validation |
+
+### Getting Started
+
+1. **Fork the Repository**: Create a personal fork of the repository
+2. **Create Feature Branch**: Use descriptive branch names (`feature/vm-encryption-enhancement`)
+3. **Make Changes**: Implement your changes following our standards
+4. **Test Thoroughly**: Validate changes in development environment
+5. **Submit Pull Request**: Use our PR template and provide detailed description
+
+---
+
+## Development Environment
+
+### Prerequisites
+
+Ensure your development environment includes:
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| [Git](https://git-scm.com/) | Latest | Version control |
+| [Terraform](https://www.terraform.io/) | >= 1.5.0 | Infrastructure as Code |
+| [Azure CLI](https://docs.microsoft.com/cli/azure/) | >= 2.50.0 | Azure management |
+| [PowerShell](https://github.com/PowerShell/PowerShell) | >= 7.0 | Automation scripts |
+| [Visual Studio Code](https://code.visualstudio.com/) | Latest | Development IDE |
+
+### Environment Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/gitpavleenbali/vm-automation-accelerator.git
+cd vm-automation-accelerator
+
+# Install dependencies
+az extension add --name azure-devops
+
+# Configure development environment
+cp boilerplate/bootstrap/control-plane/dev.tfvars.example terraform.tfvars
+```
+
+### Development Workflow
+
+```mermaid
+flowchart LR
+    FORK[Fork Repository] --> CLONE[Clone Locally]
+    CLONE --> BRANCH[Create Feature Branch]
+    BRANCH --> DEVELOP[Implement Changes]
+    DEVELOP --> TEST[Local Testing]
+    TEST --> COMMIT[Commit Changes]
+    COMMIT --> PUSH[Push to Fork]
+    PUSH --> PR[Create Pull Request]
+    PR --> REVIEW[Code Review]
+    REVIEW --> MERGE[Merge to Main]
+    
+    classDef start fill:#4caf50
+    classDef process fill:#2196f3
+    classDef review fill:#ff9800
+    classDef end fill:#9c27b0
+    
+    class FORK start
+    class CLONE,BRANCH,DEVELOP,TEST,COMMIT,PUSH,PR process
+    class REVIEW review
+    class MERGE end
+```
+
+---
+
+## Code Standards
+
+### Terraform Standards
+
+Follow these conventions for Terraform code:
+
+#### File Organization
+```
+module/
+├── main.tf          # Main resource definitions
+├── variables.tf     # Input variables with descriptions
+├── outputs.tf       # Output values
+├── versions.tf      # Provider version constraints
+├── README.md        # Module documentation
+└── examples/        # Usage examples
+    └── basic/
+        ├── main.tf
+        └── variables.tf
+```
+
+#### Naming Conventions
+```hcl
+# Resource naming pattern: <resource_type>_<purpose>_<environment>
+resource "azurerm_resource_group" "vm_automation_dev" {
+  name     = "rg-vm-automation-dev-eastus"
+  location = "East US"
+}
+
+# Variable naming: descriptive, snake_case
+variable "vm_size" {
+  description = "The size of the virtual machine"
+  type        = string
+  default     = "Standard_D2s_v5"
+}
+```
+
+#### Code Quality Requirements
+- **Validation**: All variables must include validation rules where appropriate
+- **Documentation**: Comprehensive descriptions for all variables and outputs
+- **Examples**: Working examples for all modules
+- **Testing**: Terraform validation and plan testing required
+
+### PowerShell Standards
+
+```powershell
+# Function naming: Verb-Noun convention
+function Deploy-VirtualMachine {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ResourceGroupName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$VirtualMachineName,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Location = "East US"
+    )
+    
+    # Implementation
+}
+```
+
+### Documentation Standards
+
+- **Clear Headings**: Use descriptive, hierarchical headings
+- **Code Examples**: Include working code samples
+- **Diagrams**: Use Mermaid for architecture and flow diagrams
+- **Tables**: Organize information in structured tables
+- **Links**: Reference related documentation and external resources
+
+---
+
+## Pull Request Process
+
+### PR Requirements
+
+Before submitting a pull request:
+
+1. **Code Quality**
+   - [ ] Code follows project standards
+   - [ ] All tests pass locally
+   - [ ] No linting errors
+   - [ ] Documentation updated
+
+2. **Testing**
+   - [ ] Terraform validate passes
+   - [ ] Terraform plan succeeds
+   - [ ] Security scan (Checkov) passes
+   - [ ] Integration tests completed
+
+3. **Documentation**
+   - [ ] README updated if applicable
+   - [ ] Code comments added for complex logic
+   - [ ] Example configurations provided
+
+### PR Template
+
+Use this template for pull requests:
 
 ```markdown
-**Description**
-A clear description of the bug.
+## Description
+Brief description of changes and motivation.
 
-**To Reproduce**
-Steps to reproduce:
-1. Go to '...'
-2. Run command '...'
-3. See error
+## Type of Change
+- [ ] Bug fix (non-breaking change)
+- [ ] New feature (non-breaking change)
+- [ ] Breaking change (fix or feature causing existing functionality to change)
+- [ ] Documentation update
 
-**Expected Behavior**
-What you expected to happen.
+## Testing
+- [ ] Local testing completed
+- [ ] Integration tests passed
+- [ ] Security validation performed
 
-**Actual Behavior**
-What actually happened.
+## Checklist
+- [ ] Code follows project standards
+- [ ] Self-review completed
+- [ ] Documentation updated
+- [ ] No conflicts with base branch
+```
 
-**Environment**
-- Azure Region: [e.g., westeurope]
-- Subscription Type: [e.g., Enterprise Agreement]
-- OS: [e.g., Windows Server 2022]
-- Terraform Version: [e.g., 1.5.0]
+### Review Process
+
+```mermaid
+sequenceDiagram
+    participant Contributor
+    participant Reviewer
+    participant Maintainer
+    participant CI_CD
+
+    Contributor->>Reviewer: Submit PR
+    Reviewer->>CI_CD: Trigger Automated Tests
+    CI_CD-->>Reviewer: Test Results
+    Reviewer->>Contributor: Review Feedback
+    Contributor->>Reviewer: Address Comments
+    Reviewer->>Maintainer: Approve PR
+    Maintainer->>CI_CD: Merge to Main
+    CI_CD-->>Maintainer: Deployment Status
+```
+
+---
+
+## Issue Guidelines
+
+### Bug Reports
+
+When reporting bugs, include:
+
+**Environment Information**
+- Azure region and subscription type
+- Terraform version
+- PowerShell version
+- Operating system
+
+**Reproduction Steps**
+1. Detailed steps to reproduce the issue
+2. Expected behavior
+3. Actual behavior
+4. Error messages or logs
 
 **Additional Context**
+- Configuration files (sanitized)
+- Screenshots if applicable
+- Related issues or PRs
+
+### Feature Requests
+
+For feature requests, provide:
+
+**Business Justification**
+- Problem statement
+- Current workarounds
+- Expected benefits
+
+**Technical Requirements**
+- Proposed solution approach
+- Integration considerations
+- Performance implications
+
+**Acceptance Criteria**
+- Detailed requirements
+- Success metrics
+- Testing requirements
+
+---
+
+## Community Guidelines
+
+### Code of Conduct
+
+We are committed to providing a welcoming and inclusive environment:
+
+- **Be Respectful**: Treat all community members with respect and courtesy
+- **Be Collaborative**: Work together to achieve common goals
+- **Be Constructive**: Provide helpful feedback and suggestions
+- **Be Professional**: Maintain professional communication standards
+
+### Communication Channels
+
+| Channel | Purpose | Response Time |
+|---------|---------|---------------|
+| **GitHub Issues** | Bug reports, feature requests | 2-3 business days |
+| **GitHub Discussions** | Community questions, ideas | 1-2 business days |
+| **Pull Request Reviews** | Code review and feedback | 1-2 business days |
+
+### Recognition
+
+We recognize valuable contributions through:
+
+- **Contributor Recognition**: Monthly highlight of significant contributions
+- **Maintainer Program**: Opportunity to become a project maintainer
+- **Documentation Credits**: Attribution in project documentation
+
+---
+
+## Security Considerations
+
+### Security Reporting
+
+Report security vulnerabilities privately:
+
+1. **Do not** create public issues for security vulnerabilities
+2. **Contact** maintainers directly via email
+3. **Provide** detailed vulnerability information
+4. **Allow** reasonable time for investigation and fix
+
+### Secure Development Practices
+
+- **No Secrets**: Never commit credentials or sensitive information
+- **Least Privilege**: Implement minimal required permissions
+- **Code Scanning**: Use automated security scanning tools
+- **Dependency Management**: Keep dependencies updated and secure
+
+---
+
+## Release Process
+
+### Versioning Strategy
+
+We follow semantic versioning (SemVer):
+
+- **Major (X.0.0)**: Breaking changes
+- **Minor (0.X.0)**: New features, backward compatible
+- **Patch (0.0.X)**: Bug fixes, backward compatible
+
+### Release Workflow
+
+```mermaid
+graph LR
+    DEVELOP[Development] --> TESTING[Testing]
+    TESTING --> STAGING[Staging]
+    STAGING --> PRODUCTION[Production]
+    
+    DEVELOP -->|Feature Complete| TESTING
+    TESTING -->|QA Approved| STAGING
+    STAGING -->|UAT Approved| PRODUCTION
+    
+    classDef env fill:#e3f2fd
+    class DEVELOP,TESTING,STAGING,PRODUCTION env
+```
+
+---
+
+## Getting Help
+
+### Resources
+
+- **Documentation**: Comprehensive guides in the `/docs` directory
+- **Examples**: Working examples in the `/boilerplate` directory
+- **Architecture**: Detailed architecture documentation
+- **Community**: GitHub Discussions for community support
+
+### Contact Information
+
+For specific questions or support:
+
+- **Technical Issues**: Create GitHub Issues
+- **General Questions**: Use GitHub Discussions
+- **Security Issues**: Contact maintainers directly
+- **Enterprise Support**: Contact your designated support channel
+
+---
+
+**Thank you for contributing to the Azure VM Automation Accelerator**
 Any other relevant information.
 ```
 
@@ -368,6 +699,6 @@ By contributing, you agree that your contributions will be licensed under the [M
 
 ---
 
-**Thank you for contributing to the VM Automation Accelerator!** 🎉
+**Thank you for contributing to the VM Automation Accelerator!**
 
 Your contributions help make Azure automation more accessible to everyone.

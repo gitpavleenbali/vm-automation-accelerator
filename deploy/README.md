@@ -1,102 +1,643 @@
-# Deployment Guide# VM Automation Accelerator - Complete A-Z Implementation
+# Deployment Guide
 
+This guide provides comprehensive instructions for deploying the Azure VM Automation Accelerator infrastructure using enterprise-grade patterns and best practices.
 
+---
 
-This guide provides step-by-step instructions for deploying the VM Automation Accelerator infrastructure.## 🎯 Overview
+## Overview
 
+The Azure VM Automation Accelerator implements a three-tier deployment architecture with centralized control plane management and distributed workload zones. The deployment process follows Infrastructure as Code principles with Terraform state management and Azure DevOps pipeline automation.
 
+## Architecture Overview
 
----This document provides a comprehensive guide to the **world-class VM automation solution** built using patterns from Microsoft's SAP Automation Framework (3,228 commits, 40 contributors, battle-tested in production).
+```mermaid
+graph TB
+    subgraph "Control Plane Layer"
+        CP[Control Plane]
+        STORAGE[Terraform State Storage]
+        KV[Key Vault]
+        POLICY[Azure Policy]
+    end
+    
+    subgraph "Network Layer"
+        WZ1[Workload Zone - Dev]
+        WZ2[Workload Zone - UAT]
+        WZ3[Workload Zone - Prod]
+    end
+    
+    subgraph "Compute Layer"
+        VM1[VM Deployment - Dev]
+        VM2[VM Deployment - UAT]
+        VM3[VM Deployment - Prod]
+    end
+    
+    CP -->|Manages State| STORAGE
+    CP -->|Stores Secrets| KV
+    CP -->|Enforces| POLICY
+    
+    STORAGE -.->|State Backend| WZ1
+    STORAGE -.->|State Backend| WZ2
+    STORAGE -.->|State Backend| WZ3
+    
+    WZ1 -->|Network Foundation| VM1
+    WZ2 -->|Network Foundation| VM2
+    WZ3 -->|Network Foundation| VM3
+    
+    classDef controlPlane fill:#e3f2fd
+    classDef network fill:#f3e5f5
+    classDef compute fill:#e8f5e8
+    
+    class CP,STORAGE,KV,POLICY controlPlane
+    class WZ1,WZ2,WZ3 network
+    class VM1,VM2,VM3 compute
+```
 
+---
 
+## Prerequisites
 
-## Table of Contents## 🏗️ Architecture
+### Required Tools
 
+| Tool | Minimum Version | Purpose |
+|------|----------------|---------|
+| [Terraform](https://www.terraform.io/) | 1.5.0+ | Infrastructure as Code |
+| [Azure CLI](https://docs.microsoft.com/cli/azure/) | 2.50.0+ | Azure resource management |
+| [PowerShell](https://github.com/PowerShell/PowerShell) | 7.0+ | Automation scripts |
+| [jq](https://stedolan.github.io/jq/) | 1.6+ | JSON processing |
 
+### Azure Permissions
 
-- [Prerequisites](#prerequisites)### Control Plane Pattern
+Required RBAC roles for deployment:
 
-- [Deployment Overview](#deployment-overview)
+- **Contributor** on target subscription
+- **User Access Administrator** for role assignments
+- **Key Vault Administrator** for secrets management
 
-- [Step 1: Bootstrap Control Plane](#step-1-bootstrap-control-plane)```
+### Environment Setup
 
-- [Step 2: Deploy Network Infrastructure](#step-2-deploy-network-infrastructure)┌─────────────────────────────────────────────────────────────┐
+```bash
+# Azure authentication
+az login
+az account set --subscription "<subscription-id>"
 
-- [Step 3: Deploy Virtual Machines](#step-3-deploy-virtual-machines)│                    CONTROL PLANE (Hub)                       │
+# Verify permissions
+az role assignment list --assignee $(az account show --query user.name -o tsv)
 
-- [Step 4: Deploy Governance](#step-4-deploy-governance)│                                                              │
+# Set environment variables
+export ARM_SUBSCRIPTION_ID="<subscription-id>"
+export ARM_TENANT_ID="<tenant-id>"
+```
 
-- [Azure DevOps Pipelines](#azure-devops-pipelines)│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐     │
+---
 
-- [ServiceNow Integration](#servicenow-integration)│  │   Terraform  │  │  Key Vault   │  │   Storage    │     │
+## Deployment Architecture
 
-- [Troubleshooting](#troubleshooting)│  │ State Storage│  │   (Secrets)  │  │   (Shared)   │     │
+### Tier 1: Control Plane
 
-│  └──────────────┘  └──────────────┘  └──────────────┘     │
+The control plane provides centralized state management and shared services:
 
----│                                                              │
+```mermaid
+graph LR
+    subgraph "Control Plane Components"
+        ST[Storage Account]
+        KV[Key Vault]
+        LA[Log Analytics]
+        RG[Resource Group]
+    end
+    
+    ST -->|Stores| TF_STATE[Terraform State]
+    KV -->|Manages| SECRETS[Secrets & Keys]
+    LA -->|Collects| LOGS[Audit Logs]
+    RG -->|Contains| ALL[All Resources]
+    
+    classDef storage fill:#4fc3f7
+    classDef security fill:#81c784
+    classDef logging fill:#ffb74d
+    classDef management fill:#ba68c8
+    
+    class ST,TF_STATE storage
+    class KV,SECRETS security
+    class LA,LOGS logging
+    class RG,ALL management
+```
 
-└──────────────────────┬───────────────────────────────────────┘
+### Tier 2: Workload Zones
 
-## Prerequisites                       │
+Workload zones provide network isolation and security boundaries:
 
-        ┌──────────────┼──────────────┐
+```mermaid
+graph TB
+    subgraph "Workload Zone Structure"
+        VNET[Virtual Network]
+        subgraph "Subnets"
+            WEB[Web Tier Subnet]
+            APP[Application Tier Subnet]
+            DATA[Data Tier Subnet]
+            MGMT[Management Subnet]
+        end
+        subgraph "Security"
+            NSG[Network Security Groups]
+            RT[Route Tables]
+            PE[Private Endpoints]
+        end
+    end
+    
+    VNET --> WEB
+    VNET --> APP
+    VNET --> DATA
+    VNET --> MGMT
+    
+    NSG -.->|Secures| WEB
+    NSG -.->|Secures| APP
+    NSG -.->|Secures| DATA
+    
+    RT -.->|Routes| WEB
+    RT -.->|Routes| APP
+    RT -.->|Routes| DATA
+    
+    PE -.->|Private Access| MGMT
+    
+    classDef network fill:#e1f5fe
+    classDef security fill:#ffebee
+    
+    class VNET,WEB,APP,DATA,MGMT network
+    class NSG,RT,PE security
+```
 
-### Required Tools        │              │              │
+### Tier 3: VM Deployments
 
-        ▼              ▼              ▼
+Virtual machine deployments with integrated security and monitoring:
 
-```bash┌───────────────┐ ┌───────────────┐ ┌───────────────┐
+```mermaid
+graph LR
+    subgraph "VM Deployment Components"
+        VM[Virtual Machine]
+        DISK[Managed Disks]
+        NIC[Network Interface]
+        MI[Managed Identity]
+    end
+    
+    subgraph "Security Integration"
+        AMA[Azure Monitor Agent]
+        BACKUP[Backup Policy]
+        TL[Trusted Launch]
+    end
+    
+    VM --> DISK
+    VM --> NIC
+    VM --> MI
+    
+    VM -.->|Monitors| AMA
+    VM -.->|Protects| BACKUP
+    VM -.->|Secures| TL
+    
+    classDef compute fill:#e8f5e8
+    classDef security fill:#fff3e0
+    
+    class VM,DISK,NIC,MI compute
+    class AMA,BACKUP,TL security
+```
 
-# Terraform│  WORKLOAD     │ │  WORKLOAD     │ │  WORKLOAD     │
+---
 
-terraform --version  # >= 1.5.0│  ZONE (DEV)   │ │  ZONE (UAT)   │ │  ZONE (PROD)  │
+## Deployment Process
 
-│               │ │               │ │               │
+### Step 1: Bootstrap Control Plane
 
-# Azure CLI│  VMs, VNETs   │ │  VMs, VNETs   │ │  VMs, VNETs   │
+The control plane provides centralized state management for all subsequent deployments:
 
-az --version         # >= 2.50.0│  NSGs, Subnets│ │  NSGs, Subnets│ │  NSGs, Subnets│
+```bash
+# Navigate to control plane directory
+cd deploy/scripts
 
-└───────────────┘ └───────────────┘ └───────────────┘
+# Deploy control plane
+./deploy_control_plane.sh -e dev -r eastus -p myproject
 
-# PowerShell (Windows)```
+# Verify deployment
+az storage account list --resource-group rg-cp-dev-eastus --output table
+```
 
-pwsh --version      # >= 7.0
+**Expected Resources:**
+- Storage account for Terraform state
+- Key Vault for secrets management
+- Log Analytics workspace for monitoring
+- Resource group for organization
 
-## 📁 Directory Structure
+### Step 2: Deploy Network Infrastructure
 
-# jq (for ServiceNow integration)
+Deploy the workload zone network foundation:
 
-jq --version        # >= 1.6```
+```bash
+# Deploy workload zone
+./deploy_workload_zone.sh -e dev -r eastus
 
-```vm-automation-accelerator/
+# Verify network deployment
+az network vnet list --resource-group rg-wz-dev-eastus --output table
+```
 
-├── deploy/
+**Expected Resources:**
+- Virtual network with multiple subnets
+- Network security groups with baseline rules
+- Route tables for traffic control
+- Private DNS zones for name resolution
 
-### Azure Permissions│   ├── terraform/
+### Step 3: Deploy Virtual Machines
 
-│   │   ├── bootstrap/              # Initial deployment (local state)
+Deploy virtual machines with integrated security and monitoring:
 
-Required RBAC roles:│   │   │   ├── control-plane/      # State storage, Key Vault
+```bash
+# Deploy VM with standard configuration
+./deploy_vm.sh -e dev -r eastus -n webserver
 
-- **Contributor** on subscription│   │   │   └── workload-zone/      # Network bootstrap
+# Deploy VM with custom configuration
+./deploy_vm.sh -e dev -r eastus -n database -s Standard_D8s_v5 -t Windows
+```
 
-- **User Access Administrator** (for role assignments)│   │   ├── run/                    # Production deployment (remote state)
+**Expected Resources:**
+- Virtual machine with security controls
+- Managed disks with encryption
+- Network interface with private IP
+- Managed identity for secure access
+- Azure Monitor Agent for monitoring
+- Backup policy for data protection
 
-- **Key Vault Administrator** (for Key Vault operations)│   │   │   ├── control-plane/      # Control plane (remote state)
+### Step 4: Apply Governance
 
-│   │   │   ├── workload-zone/      # Workload zone deployment
+Deploy Azure Policy and compliance controls:
 
-### Azure Setup│   │   │   └── vm-deployment/      # VM deployment
+```bash
+# Deploy governance policies
+./deploy_governance.sh --environment dev --action deploy
 
-│   │   └── terraform-units/        # Reusable modules
+# Verify policy assignments
+az policy assignment list --scope "/subscriptions/<subscription-id>" --output table
+```
 
-```bash│   │       └── modules/
+---
 
-# Login to Azure│   │           ├── naming/         # ⭐ Naming generator
+## Azure DevOps Integration
 
-az login│   │           ├── compute/        # VM resources
+### Pipeline Configuration
+
+The solution includes pre-configured Azure DevOps pipelines for automated deployment:
+
+```mermaid
+flowchart TD
+    TRIGGER[Pipeline Trigger] --> VALIDATE[Terraform Validate]
+    VALIDATE --> PLAN[Terraform Plan]
+    PLAN --> APPROVAL{Manual Approval}
+    APPROVAL -->|Approved| APPLY[Terraform Apply]
+    APPROVAL -->|Rejected| CANCEL[Cancel Deployment]
+    APPLY --> TEST[Deployment Tests]
+    TEST --> NOTIFY[Notifications]
+    
+    classDef start fill:#4caf50
+    classDef process fill:#2196f3
+    classDef decision fill:#ff9800
+    classDef end fill:#9c27b0
+    
+    class TRIGGER start
+    class VALIDATE,PLAN,APPLY,TEST process
+    class APPROVAL decision
+    class CANCEL,NOTIFY end
+```
+
+### Pipeline Templates
+
+| Pipeline | Purpose | Location |
+|----------|---------|----------|
+| `vm-deployment.yml` | VM provisioning | `deploy/pipelines/` |
+| `vm-operations.yml` | Lifecycle operations | `deploy/pipelines/` |
+| `governance-deployment.yml` | Policy deployment | `deploy/pipelines/` |
+
+### Service Connection Setup
+
+1. Create Azure Resource Manager service connection
+2. Grant required permissions to service principal
+3. Configure pipeline variables and secrets
+
+---
+
+## ServiceNow Integration
+
+### API Configuration
+
+The solution provides REST API wrappers for ServiceNow integration:
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant ServiceNow
+    participant API_Gateway
+    participant Azure_DevOps
+    participant Azure
+
+    User->>ServiceNow: Submit VM Request
+    ServiceNow->>API_Gateway: POST /api/vm/create
+    API_Gateway->>Azure_DevOps: Trigger Pipeline
+    Azure_DevOps->>Azure: Deploy Infrastructure
+    Azure-->>Azure_DevOps: Deployment Status
+    Azure_DevOps-->>API_Gateway: Pipeline Result
+    API_Gateway-->>ServiceNow: Update Request
+    ServiceNow-->>User: Notification
+```
+
+### Available API Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/vm/create` | POST | Create new VM |
+| `/api/vm/modify` | PUT | Modify VM configuration |
+| `/api/vm/backup` | POST | Initiate backup |
+| `/api/vm/restore` | POST | Restore from backup |
+
+---
+
+## Configuration Management
+
+### Environment-Specific Configurations
+
+Configuration templates are provided for different environments:
+
+```
+boilerplate/
+├── bootstrap/
+│   └── control-plane/
+│       ├── dev.tfvars
+│       ├── uat.tfvars
+│       └── prod.tfvars
+└── run/
+    ├── workload-zone/
+    │   ├── dev-eastus.tfvars
+    │   ├── uat-eastus.tfvars
+    │   └── prod-eastus.tfvars
+    └── vm-deployment/
+        ├── web-server-dev.tfvars
+        ├── app-server-uat.tfvars
+        └── db-server-prod.tfvars
+```
+
+### Variable Configuration
+
+Key configuration variables for deployment:
+
+```hcl
+# Environment configuration
+environment          = "dev"
+location             = "eastus"
+project_code         = "webapp"
+
+# Network configuration
+vnet_address_space   = ["10.0.0.0/16"]
+subnet_configurations = {
+  web = {
+    address_prefixes = ["10.0.1.0/24"]
+    service_endpoints = ["Microsoft.Storage"]
+  }
+  app = {
+    address_prefixes = ["10.0.2.0/24"]
+    service_endpoints = ["Microsoft.KeyVault"]
+  }
+}
+
+# VM configuration
+vm_configurations = {
+  size                      = "Standard_D4s_v5"
+  os_type                   = "Linux"
+  enable_encryption_at_host = true
+  enable_trusted_launch     = true
+  enable_monitoring         = true
+  enable_backup             = true
+}
+
+# Security configuration
+security_settings = {
+  enable_secure_boot    = true
+  enable_vtpm          = true
+  disk_encryption_set  = null
+}
+```
+
+---
+
+## Monitoring and Observability
+
+### Logging Strategy
+
+```mermaid
+graph TD
+    subgraph "Log Sources"
+        VM[VM Logs]
+        NET[Network Logs]
+        DEPLOY[Deployment Logs]
+    end
+    
+    subgraph "Collection"
+        AMA[Azure Monitor Agent]
+        DCR[Data Collection Rules]
+    end
+    
+    subgraph "Analytics"
+        LA[Log Analytics]
+        AI[Application Insights]
+    end
+    
+    subgraph "Visualization"
+        DASH[Azure Dashboards]
+        ALERT[Alert Rules]
+    end
+    
+    VM --> AMA
+    NET --> AMA
+    DEPLOY --> AMA
+    
+    AMA --> DCR
+    DCR --> LA
+    LA --> AI
+    
+    LA --> DASH
+    LA --> ALERT
+    
+    classDef source fill:#e3f2fd
+    classDef collection fill:#f3e5f5
+    classDef analytics fill:#e8f5e8
+    classDef visualization fill:#fff3e0
+    
+    class VM,NET,DEPLOY source
+    class AMA,DCR collection
+    class LA,AI analytics
+    class DASH,ALERT visualization
+```
+
+### Key Metrics
+
+| Metric Category | Metrics Collected |
+|----------------|-------------------|
+| **Infrastructure** | CPU, Memory, Disk, Network utilization |
+| **Security** | Authentication events, policy violations |
+| **Operations** | Deployment success rate, duration |
+| **Business** | Cost per deployment, resource utilization |
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### Terraform State Lock
+
+**Issue:** State file is locked by another operation
+
+**Solution:**
+```bash
+# Check for existing locks
+az storage blob list --account-name <storage-account> --container-name tfstate
+
+# Force unlock (use with caution)
+terraform force-unlock <lock-id>
+```
+
+#### Insufficient Permissions
+
+**Issue:** Authorization failures during deployment
+
+**Solution:**
+```bash
+# Verify current role assignments
+az role assignment list --assignee $(az account show --query user.name -o tsv)
+
+# Check required permissions
+az provider show --namespace Microsoft.Compute --query "resourceTypes[?resourceType=='virtualMachines'].locations"
+```
+
+#### Network Connectivity
+
+**Issue:** VM deployment fails due to network issues
+
+**Solution:**
+```bash
+# Verify network configuration
+az network vnet list --resource-group <resource-group>
+az network nsg list --resource-group <resource-group>
+
+# Test connectivity
+az network watcher test-connectivity --source-resource <vm-id> --dest-address <target-ip>
+```
+
+### Diagnostic Commands
+
+```bash
+# Terraform diagnostics
+terraform validate
+terraform plan -detailed-exitcode
+terraform state list
+
+# Azure resource verification
+az resource list --resource-group <resource-group> --output table
+az vm list --show-details --output table
+
+# Deployment validation
+az deployment group list --resource-group <resource-group>
+az activity-log list --resource-group <resource-group>
+```
+
+---
+
+## Security Considerations
+
+### Access Control
+
+- Use managed identities for service-to-service authentication
+- Implement least privilege access with RBAC
+- Regular review of access permissions
+- Multi-factor authentication for administrative access
+
+### Network Security
+
+- Private endpoints for Azure services
+- Network security groups with minimal required rules
+- Virtual network isolation between environments
+- Regular security assessments and penetration testing
+
+### Data Protection
+
+- Encryption at rest and in transit
+- Customer-managed keys for sensitive workloads
+- Regular backup testing and recovery procedures
+- Audit logging for all administrative actions
+
+---
+
+## Performance Optimization
+
+### Resource Sizing
+
+| Workload Type | Recommended VM Size | Memory | Storage |
+|---------------|-------------------|---------|---------|
+| **Web Server** | Standard_D2s_v5 | 8 GB | Premium SSD |
+| **Application Server** | Standard_D4s_v5 | 16 GB | Premium SSD |
+| **Database Server** | Standard_E8s_v5 | 64 GB | Ultra SSD |
+
+### Cost Optimization
+
+- Use Azure Reserved Instances for production workloads
+- Implement auto-shutdown for development environments
+- Regular review of resource utilization
+- Azure Cost Management integration
+
+---
+
+## Compliance and Governance
+
+### Policy Implementation
+
+The solution implements Azure Policy for compliance:
+
+- Resource naming standards
+- Required tags enforcement
+- Security baseline configurations
+- Cost control policies
+
+### Audit and Reporting
+
+- Comprehensive logging of all operations
+- Regular compliance reporting
+- Automated security assessments
+- Cost allocation and chargeback reporting
+
+---
+
+## Support and Maintenance
+
+### Regular Maintenance Tasks
+
+- Monthly security updates and patches
+- Quarterly backup testing
+- Annual disaster recovery testing
+- Continuous monitoring and alerting
+
+### Support Channels
+
+- Technical documentation in repository
+- Issue tracking via GitHub Issues
+- Community discussions via GitHub Discussions
+- Enterprise support through designated channels
+
+---
+
+## Next Steps
+
+After successful deployment:
+
+1. **Configure Monitoring**: Set up custom dashboards and alerts
+2. **Implement Backup**: Configure backup policies and test restore procedures
+3. **Security Hardening**: Apply additional security controls as needed
+4. **User Training**: Provide training for operations teams
+5. **Documentation**: Update local documentation with environment-specific details
+
+---
+
+**Enterprise Azure Infrastructure Deployment**
 
 │   │           ├── network/        # Network resources
 

@@ -1,425 +1,659 @@
 # Terraform State Management Guide
 
-This document explains how to manage Terraform state for the VM Automation Accelerator in a production environment.
+This guide provides comprehensive documentation for Terraform state management within the Azure VM Automation Accelerator, including backend configuration, state operations, and best practices.
 
-## Table of Contents
-- [Overview](#overview)
-- [Backend Configuration](#backend-configuration)
-- [State Locking](#state-locking)
-- [State File Management](#state-file-management)
-- [Environment Separation](#environment-separation)
-- [Best Practices](#best-practices)
-- [Troubleshooting](#troubleshooting)
+---
 
 ## Overview
 
-The VM Automation Accelerator uses **Azure Storage** as the remote backend for Terraform state management. This provides:
+Terraform state management is critical for maintaining infrastructure consistency, enabling team collaboration, and ensuring reliable deployments. This solution implements enterprise-grade state management using Azure Storage backend with advanced features for security, locking, and versioning.
 
-- **Centralized State Storage**: State files stored in Azure Blob Storage
-- **State Locking**: Automatic locking via Azure Blob lease mechanism
-- **State Versioning**: Blob versioning enabled for state file history
-- **Encryption**: State files encrypted at rest using Azure Storage encryption
-- **Access Control**: RBAC-based access to state files
-- **Team Collaboration**: Multiple team members can work safely with shared state
+### State Management Architecture
 
-### State Backend Architecture
-
+```mermaid
+graph TB
+    subgraph "Developer Environment"
+        LOCAL_CLI[Terraform CLI]
+        LOCAL_CACHE[Local State Cache]
+        WORKSPACE[Terraform Workspace]
+    end
+    
+    subgraph "CI/CD Pipeline"
+        PIPELINE[Azure DevOps Pipeline]
+        AGENT[Pipeline Agent]
+        AUTOMATION[Automated Deployment]
+    end
+    
+    subgraph "Azure Storage Backend"
+        STORAGE_ACCOUNT[Storage Account]
+        BLOB_CONTAINER[Blob Container]
+        STATE_BLOB[State Blob Files]
+        LEASE_LOCK[Lease Locking]
+        VERSIONING[Blob Versioning]
+        ENCRYPTION[Storage Encryption]
+    end
+    
+    subgraph "Azure Resources"
+        RESOURCE_GROUP[Resource Groups]
+        VIRTUAL_MACHINES[Virtual Machines]
+        NETWORKS[Virtual Networks]
+        SECURITY[Security Resources]
+    end
+    
+    subgraph "Access Control"
+        RBAC[Role-Based Access Control]
+        MSI[Managed Service Identity]
+        SERVICE_PRINCIPAL[Service Principal]
+    end
+    
+    LOCAL_CLI <-->|Read/Write State| LOCAL_CACHE
+    PIPELINE <-->|Read/Write State| AGENT
+    
+    LOCAL_CACHE <-->|Sync via HTTPS| STORAGE_ACCOUNT
+    AGENT <-->|Sync via HTTPS| STORAGE_ACCOUNT
+    
+    STORAGE_ACCOUNT --> BLOB_CONTAINER
+    BLOB_CONTAINER --> STATE_BLOB
+    BLOB_CONTAINER --> LEASE_LOCK
+    BLOB_CONTAINER --> VERSIONING
+    STORAGE_ACCOUNT --> ENCRYPTION
+    
+    STATE_BLOB -.->|Tracks| RESOURCE_GROUP
+    STATE_BLOB -.->|Tracks| VIRTUAL_MACHINES
+    STATE_BLOB -.->|Tracks| NETWORKS
+    STATE_BLOB -.->|Tracks| SECURITY
+    
+    RBAC -.->|Controls Access| STORAGE_ACCOUNT
+    MSI -.->|Authenticates| PIPELINE
+    SERVICE_PRINCIPAL -.->|Authenticates| LOCAL_CLI
+    
+    classDef local fill:#e8f5e8,color:#333
+    classDef pipeline fill:#e3f2fd,color:#333
+    classDef storage fill:#f3e5f5,color:#333
+    classDef resources fill:#fff3e0,color:#333
+    classDef security fill:#ffebee,color:#333
+    
+    class LOCAL_CLI,LOCAL_CACHE,WORKSPACE local
+    class PIPELINE,AGENT,AUTOMATION pipeline
+    class STORAGE_ACCOUNT,BLOB_CONTAINER,STATE_BLOB,LEASE_LOCK,VERSIONING,ENCRYPTION storage
+    class RESOURCE_GROUP,VIRTUAL_MACHINES,NETWORKS,SECURITY resources
+    class RBAC,MSI,SERVICE_PRINCIPAL security
 ```
-Azure Subscription
-└── Resource Group: rg-terraform-state-prod
-    └── Storage Account: stuniptertfstateprod
-        └── Container: tfstate
-            ├── vm-automation/prod/terraform.tfstate
-            ├── vm-automation/dev/terraform.tfstate
-            └── vm-automation/test/terraform.tfstate
-```
+
+---
 
 ## Backend Configuration
 
-### Initial Setup
+### Primary Backend Configuration
 
-The Terraform backend is configured in `backend.tf`:
+The solution uses Azure Storage as the Terraform backend with the following configuration:
 
 ```hcl
+# backend.tf
 terraform {
+  required_version = ">= 1.5.0"
+  
   backend "azurerm" {
-    # Configuration provided via backend config files
+    # Backend configuration will be provided via backend config files
+    # This allows for environment-specific backend configurations
+  }
+  
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.80"
+    }
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 2.45"
+    }
   }
 }
-```
 
-### Environment-Specific Backend Configuration
-
-Backend configuration is separated by environment using `.hcl` files:
-
-**Production** (`backend-config/prod.hcl`):
-```hcl
-resource_group_name  = "rg-terraform-state-prod"
-storage_account_name = "stuniptertfstateprod"
-container_name       = "tfstate"
-key                  = "vm-automation/prod/terraform.tfstate"
-use_azuread_auth     = true
-```
-
-**Development** (`backend-config/dev.hcl`):
-```hcl
-resource_group_name  = "rg-terraform-state-dev"
-storage_account_name = "stuniptertfstatedev"
-container_name       = "tfstate"
-key                  = "vm-automation/dev/terraform.tfstate"
-use_azuread_auth     = true
-```
-
-### Initialize Terraform with Backend
-
-```bash
-# Production
-terraform init -backend-config="backend-config/prod.hcl"
-
-# Development
-terraform init -backend-config="backend-config/dev.hcl"
-```
-
-## State Locking
-
-### How State Locking Works
-
-Terraform automatically acquires a **lease lock** on the Azure Blob when performing state-modifying operations:
-
-1. User runs `terraform apply`
-2. Terraform acquires a lease lock on the state blob
-3. Terraform reads the current state
-4. Terraform performs the operation
-5. Terraform writes the new state
-6. Terraform releases the lease lock
-
-### Lock Behavior
-
-- **Lock Duration**: 15 seconds (automatically renewed during long operations)
-- **Concurrent Operations**: Blocked until lock is released
-- **Lock Failure**: Terraform waits and retries
-- **Force Unlock**: Available if lock gets stuck (use with caution)
-
-### Force Unlock (Emergency Only)
-
-If a lock gets stuck (e.g., process killed), you can force unlock:
-
-```bash
-# Get the Lock ID from error message
-terraform force-unlock <LOCK_ID>
-```
-
-**⚠️ WARNING**: Only use force-unlock if you're certain no other process is running!
-
-## State File Management
-
-### State File Structure
-
-```json
-{
-  "version": 4,
-  "terraform_version": "1.5.7",
-  "serial": 42,
-  "lineage": "c8a1d0b2-...",
-  "outputs": { ... },
-  "resources": [ ... ]
+# Configure the Azure Provider
+provider "azurerm" {
+  features {
+    resource_group {
+      prevent_deletion_if_contains_resources = false
+    }
+    
+    virtual_machine {
+      delete_os_disk_on_deletion     = true
+      graceful_shutdown              = false
+      skip_shutdown_and_force_delete = false
+    }
+    
+    key_vault {
+      purge_soft_delete_on_destroy    = true
+      recover_soft_deleted_key_vaults = true
+    }
+  }
+  
+  # Use Managed Service Identity in CI/CD
+  use_msi = true
+  
+  # Storage provider features
+  storage_use_azuread = true
 }
 ```
 
-### State File Versioning
+### Environment-Specific Backend Configurations
 
-Azure Blob Storage versioning is enabled for state files:
+**Production Backend** (`backend-config/production.hcl`):
+```hcl
+resource_group_name  = "rg-terraform-state-prod-eastus"
+storage_account_name = "sttfstateprodeastus001"
+container_name       = "tfstate-production"
+key                  = "vm-automation-accelerator/production/terraform.tfstate"
 
+# Authentication
+use_msi                     = true
+use_azuread_auth           = true
+subscription_id            = "12345678-1234-1234-1234-123456789012"
+tenant_id                  = "12345678-1234-1234-1234-123456789012"
+
+# Additional settings
+snapshot                   = true
+```
+
+**Development Backend** (`backend-config/development.hcl`):
+```hcl
+resource_group_name  = "rg-terraform-state-dev-eastus"
+storage_account_name = "sttfstatedeveastus001"
+container_name       = "tfstate-development"
+key                  = "vm-automation-accelerator/development/terraform.tfstate"
+
+# Authentication
+use_msi                     = true
+use_azuread_auth           = true
+subscription_id            = "87654321-4321-4321-4321-210987654321"
+tenant_id                  = "12345678-1234-1234-1234-123456789012"
+
+# Additional settings
+snapshot                   = true
+```
+
+**User Acceptance Testing Backend** (`backend-config/uat.hcl`):
+```hcl
+resource_group_name  = "rg-terraform-state-uat-eastus"
+storage_account_name = "sttfstateuateastus001"
+container_name       = "tfstate-uat"
+key                  = "vm-automation-accelerator/uat/terraform.tfstate"
+
+# Authentication
+use_msi                     = true
+use_azuread_auth           = true
+subscription_id            = "11111111-2222-3333-4444-555555555555"
+tenant_id                  = "12345678-1234-1234-1234-123456789012"
+
+# Additional settings
+snapshot                   = true
+```
+
+---
+
+## State Initialization and Management
+
+### Initial State Setup
+
+**Step 1: Create Backend Infrastructure**
 ```bash
-# List state file versions
-az storage blob list \
-  --account-name stuniptertfstateprod \
-  --container-name tfstate \
-  --prefix "vm-automation/prod/" \
-  --include v \
+# Create resource group for state storage
+az group create \
+  --name "rg-terraform-state-prod-eastus" \
+  --location "East US" \
+  --tags "Purpose=TerraformState" "Environment=Production"
+
+# Create storage account with versioning and encryption
+az storage account create \
+  --name "sttfstateprodeastus001" \
+  --resource-group "rg-terraform-state-prod-eastus" \
+  --location "East US" \
+  --sku "Standard_LRS" \
+  --kind "StorageV2" \
+  --enable-versioning \
+  --min-tls-version "TLS1_2" \
+  --allow-blob-public-access false \
+  --tags "Purpose=TerraformState" "Environment=Production"
+
+# Create blob container
+az storage container create \
+  --name "tfstate-production" \
+  --account-name "sttfstateprodeastus001" \
   --auth-mode login
 
-# Download a specific version
-az storage blob download \
-  --account-name stuniptertfstateprod \
-  --container-name tfstate \
-  --name "vm-automation/prod/terraform.tfstate" \
-  --file "./terraform.tfstate.backup" \
-  --version-id "<VERSION_ID>" \
-  --auth-mode login
+# Enable versioning on container
+az storage container-rm update \
+  --name "tfstate-production" \
+  --storage-account "sttfstateprodeastus001" \
+  --resource-group "rg-terraform-state-prod-eastus" \
+  --enable-versioning
 ```
 
-### Manual State Operations
-
-#### Pull Current State
-
+**Step 2: Configure Access Control**
 ```bash
-terraform state pull > terraform.tfstate.backup
+# Assign Storage Blob Data Contributor role to service principal
+az role assignment create \
+  --assignee "<service-principal-object-id>" \
+  --role "Storage Blob Data Contributor" \
+  --scope "/subscriptions/<subscription-id>/resourceGroups/rg-terraform-state-prod-eastus/providers/Microsoft.Storage/storageAccounts/sttfstateprodeastus001"
+
+# Assign Reader role for resource group
+az role assignment create \
+  --assignee "<service-principal-object-id>" \
+  --role "Reader" \
+  --scope "/subscriptions/<subscription-id>/resourceGroups/rg-terraform-state-prod-eastus"
 ```
 
-#### Push State (Caution!)
-
+**Step 3: Initialize Terraform**
 ```bash
-terraform state push terraform.tfstate
-```
+# Initialize with specific backend configuration
+terraform init -backend-config="backend-config/production.hcl"
 
-**⚠️ WARNING**: `state push` overwrites the remote state. Use with extreme caution!
-
-#### List Resources in State
-
-```bash
+# Verify backend configuration
 terraform state list
 ```
 
-#### Show Resource Details
+### State Operations
+
+#### Basic State Commands
 
 ```bash
-terraform state show azurerm_windows_virtual_machine.vm
-```
+# List all resources in state
+terraform state list
 
-#### Move Resources
+# Show detailed information about a specific resource
+terraform state show azurerm_virtual_machine.web_server
 
-```bash
-# Rename resource in state
-terraform state mv azurerm_windows_virtual_machine.old azurerm_windows_virtual_machine.new
-```
+# Show current state file location and metadata
+terraform show
 
-#### Remove Resource from State
-
-```bash
-# Remove from state without destroying resource
-terraform state rm azurerm_windows_virtual_machine.vm
-```
-
-## Environment Separation
-
-### Strategy: Separate State Files
-
-Each environment has its **own state file**:
-
-- **Production**: `vm-automation/prod/terraform.tfstate`
-- **Development**: `vm-automation/dev/terraform.tfstate`
-- **Test**: `vm-automation/test/terraform.tfstate`
-
-### Benefits
-
-✅ **Isolation**: Changes in dev don't affect prod
-✅ **Security**: Different RBAC permissions per environment
-✅ **Safety**: No risk of accidentally destroying prod resources
-✅ **Clarity**: Clear separation of resources
-
-### CI/CD Integration
-
-The Azure DevOps pipeline automatically selects the correct backend based on the branch:
-
-```yaml
-- task: AzureCLI@2
-  displayName: 'Terraform Init'
-  inputs:
-    scriptType: 'bash'
-    inlineScript: |
-      if [[ "$(Build.SourceBranchName)" == "main" ]]; then
-        ENVIRONMENT="prod"
-      else
-        ENVIRONMENT="dev"
-      fi
-      
-      terraform init -backend-config="backend-config/${ENVIRONMENT}.hcl"
-```
-
-## Best Practices
-
-### ✅ DO
-
-1. **Always use remote backend** - Never store state locally for production
-2. **Enable blob versioning** - Provides state file history and recovery
-3. **Use separate state files per environment** - Isolate dev/test/prod
-4. **Use Azure AD authentication** - More secure than storage account keys
-5. **Restrict storage account access** - Use RBAC and firewall rules
-6. **Enable soft delete** - Protects against accidental state deletion
-7. **Back up state regularly** - Store copies in separate location
-8. **Use state locking** - Prevents concurrent modifications
-9. **Review state file changes** - Check `terraform plan` before applying
-10. **Document state operations** - Log all manual state modifications
-
-### ❌ DON'T
-
-1. **Don't commit state files to Git** - Add `*.tfstate*` to `.gitignore`
-2. **Don't share storage account keys** - Use Managed Identity or SPN
-3. **Don't manually edit state files** - Use Terraform state commands
-4. **Don't force-unlock without verifying** - Could cause state corruption
-5. **Don't use same state file for multiple environments** - Use separate files
-6. **Don't disable state locking** - Prevents race conditions
-7. **Don't ignore state drift** - Run `terraform plan` regularly
-8. **Don't delete state files** - Use proper Terraform destroy workflow
-
-### State File Security
-
-#### Access Control
-
-```bash
-# Grant read/write access to specific users
-az role assignment create \
-  --role "Storage Blob Data Contributor" \
-  --assignee "user@Your Organization.com" \
-  --scope "/subscriptions/<SUB_ID>/resourceGroups/rg-terraform-state-prod/providers/Microsoft.Storage/storageAccounts/stuniptertfstateprod"
-
-# Grant read-only access
-az role assignment create \
-  --role "Storage Blob Data Reader" \
-  --assignee "user@Your Organization.com" \
-  --scope "/subscriptions/<SUB_ID>/resourceGroups/rg-terraform-state-prod/providers/Microsoft.Storage/storageAccounts/stuniptertfstateprod"
-```
-
-#### Network Restrictions
-
-```bash
-# Enable firewall and restrict to specific IPs
-az storage account update \
-  --name stuniptertfstateprod \
-  --resource-group rg-terraform-state-prod \
-  --default-action Deny
-
-# Add allowed IP ranges
-az storage account network-rule add \
-  --account-name stuniptertfstateprod \
-  --resource-group rg-terraform-state-prod \
-  --ip-address "203.0.113.0/24"
-```
-
-#### Enable Soft Delete
-
-```bash
-# Enable soft delete for 30 days
-az storage account blob-service-properties update \
-  --account-name stuniptertfstateprod \
-  --enable-delete-retention true \
-  --delete-retention-days 30
-```
-
-## Troubleshooting
-
-### Issue: "Error locking state: blob is already locked"
-
-**Cause**: Another Terraform process is running or a previous process crashed
-
-**Solution**:
-```bash
-# Wait for the lock to expire (15 seconds)
-# OR force unlock if certain no other process is running
-terraform force-unlock <LOCK_ID>
-```
-
-### Issue: "Error: Failed to get existing workspaces"
-
-**Cause**: Insufficient permissions on storage account
-
-**Solution**:
-```bash
-# Grant "Storage Blob Data Contributor" role
-az role assignment create \
-  --role "Storage Blob Data Contributor" \
-  --assignee "$(az ad signed-in-user show --query id -o tsv)" \
-  --scope "<STORAGE_ACCOUNT_RESOURCE_ID>"
-```
-
-### Issue: "Error: state snapshot was created by Terraform v1.6.0, which is newer"
-
-**Cause**: Terraform version mismatch
-
-**Solution**:
-```bash
-# Install the required Terraform version
-tfenv install 1.6.0
-tfenv use 1.6.0
-
-# OR update terraform.required_version in backend.tf
-```
-
-### Issue: "Error: Backend configuration changed"
-
-**Cause**: Backend configuration was modified
-
-**Solution**:
-```bash
-# Reinitialize with new backend configuration
-terraform init -reconfigure -backend-config="backend-config/prod.hcl"
-```
-
-### Issue: State drift detected
-
-**Cause**: Resources were modified outside Terraform
-
-**Solution**:
-```bash
-# Identify drifted resources
-terraform plan -detailed-exitcode
-
-# Refresh state to match current infrastructure
+# Refresh state from actual infrastructure
 terraform refresh
-
-# Update Terraform code to match manual changes
-# OR revert manual changes to match Terraform code
-
-# Reapply to fix drift
-terraform apply
 ```
 
-### Recovering from State File Corruption
+#### Advanced State Management
 
-1. **Stop all Terraform operations immediately**
+**State Import Operations**:
+```bash
+# Import existing virtual machine
+terraform import \
+  azurerm_virtual_machine.existing_vm \
+  /subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg-existing/providers/Microsoft.Compute/virtualMachines/vm-existing-001
 
-2. **Download the corrupted state file**:
-   ```bash
-   az storage blob download \
-     --account-name stuniptertfstateprod \
-     --container-name tfstate \
-     --name "vm-automation/prod/terraform.tfstate" \
-     --file "./corrupted-state.json" \
-     --auth-mode login
-   ```
+# Import resource group
+terraform import \
+  azurerm_resource_group.main \
+  /subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg-vm-automation-prod
 
-3. **List available versions**:
-   ```bash
-   az storage blob list \
-     --account-name stuniptertfstateprod \
-     --container-name tfstate \
-     --prefix "vm-automation/prod/" \
-     --include v \
-     --auth-mode login
-   ```
+# Import virtual network
+terraform import \
+  azurerm_virtual_network.main \
+  /subscriptions/12345678-1234-1234-1234-123456789012/resourceGroups/rg-networking/providers/Microsoft.Network/virtualNetworks/vnet-prod-eastus
+```
 
-4. **Download a previous working version**:
-   ```bash
-   az storage blob download \
-     --account-name stuniptertfstateprod \
-     --container-name tfstate \
-     --name "vm-automation/prod/terraform.tfstate" \
-     --file "./recovered-state.json" \
-     --version-id "<PREVIOUS_VERSION_ID>" \
-     --auth-mode login
-   ```
+**State Movement Operations**:
+```bash
+# Move resource to a different module
+terraform state mv \
+  azurerm_virtual_machine.web_server \
+  module.compute.azurerm_virtual_machine.web_server
 
-5. **Test the recovered state**:
-   ```bash
-   terraform state pull > current-state.json
-   cp recovered-state.json terraform.tfstate
-   terraform plan  # Verify plan looks reasonable
-   ```
+# Rename resource in state
+terraform state mv \
+  azurerm_virtual_machine.old_name \
+  azurerm_virtual_machine.new_name
 
-6. **Push the recovered state (if verification passed)**:
-   ```bash
-   terraform state push recovered-state.json
-   ```
+# Remove resource from state (without destroying)
+terraform state rm azurerm_virtual_machine.decommissioned
+```
 
-7. **Verify recovery**:
-   ```bash
-   terraform plan  # Should show minimal or no changes
-   ```
+---
 
-## Additional Resources
+## State Locking
 
-- [Terraform Backend Documentation](https://developer.hashicorp.com/terraform/language/settings/backends/azurerm)
-- [Azure Storage for Terraform State](https://learn.microsoft.com/en-us/azure/developer/terraform/store-state-in-azure-storage)
-- [Terraform State Management Best Practices](https://developer.hashicorp.com/terraform/language/state)
-- [Azure Blob Lease Locking](https://learn.microsoft.com/en-us/rest/api/storageservices/lease-blob)
+### Lease-Based Locking Mechanism
+
+Azure Storage implements state locking using blob lease mechanism:
+
+```mermaid
+sequenceDiagram
+    participant D as Developer/Pipeline
+    participant TF as Terraform
+    participant AS as Azure Storage
+    participant BL as Blob Lease
+    participant SF as State File
+
+    D->>TF: terraform plan/apply
+    TF->>AS: Request state lock
+    AS->>BL: Acquire lease on state blob
+    BL-->>AS: Lease ID (60 seconds)
+    AS-->>TF: Lock acquired
+    
+    TF->>SF: Read current state
+    SF-->>TF: State data
+    
+    TF->>TF: Process changes
+    
+    TF->>SF: Write updated state
+    SF-->>TF: Write confirmed
+    
+    TF->>AS: Release state lock
+    AS->>BL: Release lease
+    BL-->>AS: Lease released
+    AS-->>TF: Lock released
+    TF-->>D: Operation completed
+
+    Note over BL: Auto-expires after 60s if not renewed
+    Note over AS: Prevents concurrent modifications
+```
+
+### Lock Management
+
+**View Current Lock**:
+```bash
+# Check if state is locked
+terraform force-unlock --help
+
+# View lock information (if available)
+terraform state pull | jq '.serial'
+```
+
+**Handle Lock Issues**:
+```bash
+# Force unlock (use with extreme caution)
+terraform force-unlock <lock-id>
+
+# Example: Emergency unlock after failed operation
+terraform force-unlock "1234567890abcdef"
+```
+
+### Concurrent Access Handling
+
+**Best Practices for Team Collaboration**:
+
+1. **Coordinate Operations**: Communicate with team before major changes
+2. **Use Short-Lived Operations**: Minimize lock duration
+3. **Automated Retries**: CI/CD pipelines should implement retry logic
+4. **Emergency Procedures**: Document force-unlock procedures
+
+**Pipeline Lock Handling**:
+```yaml
+# Azure DevOps Pipeline example
+- task: TerraformCLI@0
+  displayName: 'Terraform Apply'
+  inputs:
+    command: apply
+    workingDirectory: '$(Pipeline.Workspace)/terraform'
+    commandOptions: '-auto-approve -lock-timeout=10m'
+  retryCountOnTaskFailure: 3
+```
+
+---
+
+## State Versioning and Backup
+
+### Blob Versioning
+
+Azure Storage blob versioning provides automatic state history:
+
+```mermaid
+graph LR
+    subgraph "State File Versions"
+        V1[Version 1<br/>Initial Deploy]
+        V2[Version 2<br/>VM Addition]
+        V3[Version 3<br/>Network Update]
+        V4[Version 4<br/>Current State]
+    end
+    
+    subgraph "Version Metadata"
+        M1[Timestamp<br/>2024-01-15 10:00]
+        M2[Timestamp<br/>2024-01-15 14:30]
+        M3[Timestamp<br/>2024-01-16 09:15]
+        M4[Timestamp<br/>2024-01-16 16:45]
+    end
+    
+    subgraph "Operations"
+        RESTORE[Point-in-Time Restore]
+        AUDIT[Audit Trail]
+        COMPARE[Version Comparison]
+    end
+    
+    V1 --- M1
+    V2 --- M2
+    V3 --- M3
+    V4 --- M4
+    
+    V1 -.-> RESTORE
+    V2 -.-> RESTORE
+    V3 -.-> RESTORE
+    
+    M1 --> AUDIT
+    M2 --> AUDIT
+    M3 --> AUDIT
+    M4 --> AUDIT
+    
+    V1 --> COMPARE
+    V4 --> COMPARE
+    
+    classDef version fill:#e3f2fd
+    classDef metadata fill:#f3e5f5
+    classDef operation fill:#e8f5e8
+    
+    class V1,V2,V3,V4 version
+    class M1,M2,M3,M4 metadata
+    class RESTORE,AUDIT,COMPARE operation
+```
+
+### Version Management Commands
+
+**List State Versions**:
+```bash
+# List blob versions using Azure CLI
+az storage blob list \
+  --container-name "tfstate-production" \
+  --account-name "sttfstateprodeastus001" \
+  --prefix "vm-automation-accelerator/production/" \
+  --include versions \
+  --auth-mode login
+```
+
+**Restore Previous Version**:
+```bash
+# Download specific version
+az storage blob download \
+  --container-name "tfstate-production" \
+  --name "vm-automation-accelerator/production/terraform.tfstate" \
+  --file "terraform.tfstate.backup" \
+  --account-name "sttfstateprodeastus001" \
+  --version-id "<version-id>" \
+  --auth-mode login
+
+# Replace current state (after validation)
+az storage blob upload \
+  --container-name "tfstate-production" \
+  --name "vm-automation-accelerator/production/terraform.tfstate" \
+  --file "terraform.tfstate.backup" \
+  --account-name "sttfstateprodeastus001" \
+  --auth-mode login \
+  --overwrite
+```
+
+### Automated Backup Strategy
+
+**Daily Backup Script**:
+```bash
+#!/bin/bash
+# backup-terraform-state.sh
+
+set -euo pipefail
+
+# Configuration
+STORAGE_ACCOUNT="sttfstateprodeastus001"
+CONTAINER_NAME="tfstate-production"
+STATE_KEY="vm-automation-accelerator/production/terraform.tfstate"
+BACKUP_CONTAINER="tfstate-backups"
+DATE=$(date +%Y%m%d-%H%M%S)
+
+echo "Starting Terraform state backup - $DATE"
+
+# Create backup container if it doesn't exist
+az storage container create \
+  --name "$BACKUP_CONTAINER" \
+  --account-name "$STORAGE_ACCOUNT" \
+  --auth-mode login \
+  --only-show-errors
+
+# Copy current state to backup location
+az storage blob copy start \
+  --source-container "$CONTAINER_NAME" \
+  --source-blob "$STATE_KEY" \
+  --destination-container "$BACKUP_CONTAINER" \
+  --destination-blob "$STATE_KEY.$DATE" \
+  --account-name "$STORAGE_ACCOUNT" \
+  --auth-mode login
+
+# Verify backup
+az storage blob exists \
+  --container-name "$BACKUP_CONTAINER" \
+  --name "$STATE_KEY.$DATE" \
+  --account-name "$STORAGE_ACCOUNT" \
+  --auth-mode login
+
+echo "Terraform state backup completed successfully"
+
+# Cleanup old backups (keep last 30 days)
+CUTOFF_DATE=$(date -d '30 days ago' +%Y%m%d)
+
+az storage blob list \
+  --container-name "$BACKUP_CONTAINER" \
+  --prefix "$STATE_KEY" \
+  --account-name "$STORAGE_ACCOUNT" \
+  --auth-mode login \
+  --query "[?properties.creationTime < '$CUTOFF_DATE-00:00:00'].name" \
+  --output tsv | \
+while read -r blob_name; do
+  if [ -n "$blob_name" ]; then
+    echo "Deleting old backup: $blob_name"
+    az storage blob delete \
+      --container-name "$BACKUP_CONTAINER" \
+      --name "$blob_name" \
+      --account-name "$STORAGE_ACCOUNT" \
+      --auth-mode login
+  fi
+done
+
+echo "Backup cleanup completed"
+```
+
+---
+
+## Security and Access Control
+
+### Role-Based Access Control (RBAC)
+
+**Required Roles for State Management**:
+
+| Role | Scope | Purpose | Permissions |
+|------|-------|---------|-------------|
+| **Storage Blob Data Contributor** | Storage Account | Read/Write state files | List, read, write, delete blobs |
+| **Storage Account Contributor** | Storage Account | Manage storage settings | Manage storage account properties |
+| **Reader** | Resource Group | View storage account | Read storage account metadata |
+| **Storage Blob Data Reader** | Storage Account | Read-only access | List and read blobs only |
+
+**RBAC Assignment Script**:
+```bash
+#!/bin/bash
+# assign-state-permissions.sh
+
+# Configuration
+SUBSCRIPTION_ID="12345678-1234-1234-1234-123456789012"
+RESOURCE_GROUP="rg-terraform-state-prod-eastus"
+STORAGE_ACCOUNT="sttfstateprodeastus001"
+SERVICE_PRINCIPAL_ID="<service-principal-object-id>"
+
+# Assign Storage Blob Data Contributor role
+az role assignment create \
+  --assignee "$SERVICE_PRINCIPAL_ID" \
+  --role "Storage Blob Data Contributor" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Storage/storageAccounts/$STORAGE_ACCOUNT"
+
+# Assign Reader role for resource group
+az role assignment create \
+  --assignee "$SERVICE_PRINCIPAL_ID" \
+  --role "Reader" \
+  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP"
+
+echo "RBAC permissions assigned successfully"
+```
+
+### Authentication Methods
+
+**Service Principal Authentication**:
+```bash
+# Set environment variables for service principal
+export ARM_CLIENT_ID="<client-id>"
+export ARM_CLIENT_SECRET="<client-secret>"
+export ARM_SUBSCRIPTION_ID="<subscription-id>"
+export ARM_TENANT_ID="<tenant-id>"
+
+# Initialize Terraform with service principal
+terraform init -backend-config="backend-config/production.hcl"
+```
+
+**Managed Service Identity (MSI)**:
+```hcl
+# Provider configuration for MSI
+provider "azurerm" {
+  features {}
+  use_msi = true
+}
+```
+
+**Azure CLI Authentication**:
+```bash
+# Login with Azure CLI
+az login --tenant "<tenant-id>"
+
+# Set subscription context
+az account set --subscription "<subscription-id>"
+
+# Initialize Terraform (will use CLI credentials)
+terraform init -backend-config="backend-config/production.hcl"
+```
+
+---
+
+## Best Practices Summary
+
+### State Security
+- Use Azure Storage with encryption at rest
+- Implement RBAC with principle of least privilege
+- Enable blob versioning for state history
+- Regular automated backups
+- Monitor state file access
+
+### Team Collaboration
+- Use shared remote backend
+- Implement state locking
+- Coordinate major changes
+- Document state operations
+- Use workspace separation for environments
+
+### Operational Excellence
+- Automate state management tasks
+- Implement disaster recovery procedures
+- Monitor state file health
+- Regular state cleanup
+- Version control backend configurations
+
+### Compliance and Governance
+- Audit state file access
+- Implement change approval processes
+- Document state management procedures
+- Regular compliance reviews
+- Automated policy enforcement
+
+---
+
+**Enterprise-Grade State Management Foundation**
