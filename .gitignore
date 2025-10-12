@@ -110,3 +110,22 @@ AUDIT-REPORT.md
 RELEASE-CHECKLIST.md
 MULTI-ENVIRONMENT-SUPPORT.md
 LINKEDIN-POST.md
+# Internal Documentation (_docs/)
+# Keep these files locally for reference, don't push to GitHub
+_docs/
+
+# Old/backup files
+*-old.md
+*.backup
+
+# Detailed internal READMEs (keep main ones only)
+deploy/scripts/**/README.md
+deploy/servicenow/README.md
+deploy/terraform/terraform-units/modules/**/README.md
+deploy/pipelines/README.md
+
+# Analysis and progress tracking files
+TERRAFORM-ISSUES-ANALYSIS.md
+TERRAFORM-FIX-PROGRESS.md
+*-ANALYSIS.md
+*-PROGRESS.md
