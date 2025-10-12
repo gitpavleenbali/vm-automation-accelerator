@@ -81,9 +81,9 @@ data "azurerm_client_config" "current" {
 
 # Get existing resource group if specified
 data "azurerm_resource_group" "existing" {
-  count    = local.resource_group.use_existing ? 1 : 0
+  count    = !var.create_resource_group ? 1 : 0
   provider = azurerm.main
-  name     = local.resource_group.name
+  name     = var.resource_group_name
 }
 
 # Generate random ID for globally unique resources
@@ -128,25 +128,25 @@ module "naming" {
 # ============================================================================
 
 resource "azurerm_resource_group" "control_plane" {
-  count    = local.resource_group.use_existing ? 0 : 1
+  count    = var.create_resource_group ? 1 : 0
   provider = azurerm.main
   
-  name     = coalesce(local.resource_group.name, module.naming.resource_group_name)
-  location = local.resource_group.location
-  tags     = local.resource_group.tags
+  name     = var.resource_group_name != null && var.resource_group_name != "" ? var.resource_group_name : module.naming.resource_group_name
+  location = var.location
+  tags     = local.common_tags
 }
 
 locals {
-  resource_group_name = local.resource_group.use_existing ? (
-    data.azurerm_resource_group.existing[0].name
-  ) : (
+  resource_group_name = var.create_resource_group ? (
     azurerm_resource_group.control_plane[0].name
+  ) : (
+    data.azurerm_resource_group.existing[0].name
   )
   
-  resource_group_location = local.resource_group.use_existing ? (
-    data.azurerm_resource_group.existing[0].location
-  ) : (
+  resource_group_location = var.create_resource_group ? (
     azurerm_resource_group.control_plane[0].location
+  ) : (
+    data.azurerm_resource_group.existing[0].location
   )
 }
 
@@ -205,20 +205,19 @@ resource "azurerm_key_vault" "control_plane" {
   location            = local.resource_group_location
   tenant_id           = data.azurerm_client_config.current.tenant_id
   
-  sku_name = local.key_vault.sku
+  sku_name = var.key_vault_sku
   
-  soft_delete_retention_days = local.key_vault.soft_delete_retention_days
-  purge_protection_enabled   = local.key_vault.enable_purge_protection
-  enable_rbac_authorization  = local.key_vault.enable_rbac_authorization
+  soft_delete_retention_days = var.key_vault_soft_delete_retention_days
+  purge_protection_enabled   = var.key_vault_enable_purge_protection
   
   network_acls {
-    default_action             = local.key_vault.network.default_action
-    bypass                     = local.key_vault.network.bypass
-    ip_rules                   = local.key_vault.network.allowed_ips
-    virtual_network_subnet_ids = local.key_vault.network.subnet_ids
+    default_action             = var.key_vault_network_default_action
+    bypass                     = var.key_vault_network_bypass
+    ip_rules                   = var.key_vault_allowed_ip_addresses
+    virtual_network_subnet_ids = var.key_vault_subnet_ids
   }
   
-  tags = local.key_vault.tags
+  tags = local.common_tags
   
   depends_on = [azurerm_resource_group.control_plane]
 }
