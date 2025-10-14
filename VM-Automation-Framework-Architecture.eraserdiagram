@@ -1,0 +1,75 @@
+cloud-architecture-diagram
+
+// VM Automation Accelerator - Complete Framework Architecture
+// Following official Azure Eraser example pattern
+
+// Define groups and nodes
+Infrastructure Admin [icon: azure-users, color: blue]
+ServiceNow [icon: server, color: orange]
+
+Azure Cloud [icon: azure-resource-groups] {
+  VM Automation Framework [icon: azure-devops, color: green] {
+    A2Z PowerShell [icon: azure-powershell]
+    DevOps Pipeline [icon: azure-devops] 
+    Terraform Modules [icon: terraform] {
+      naming [icon: azure-resource-groups]
+      network [icon: azure-virtual-networks]
+      compute [icon: azure-virtual-machine]
+      monitoring [icon: azure-monitor]
+      backup [icon: azure-backup-center]
+    }
+  }
+  
+  Control Plane [icon: azure-resource-groups, color: darkblue] {
+    Resource Groups [icon: azure-resource-groups]
+    Storage Backend [icon: azure-storage-accounts]
+    Key Vault [icon: azure-key-vaults]
+  }
+  
+  Virtual Network [icon: azure-virtual-networks] {
+    Web Tier [icon: azure-network-security-groups, color: green] {
+      vm-web-01 [icon: azure-virtual-machine]
+      vm-web-02 [icon: azure-virtual-machine] 
+      vm-web-03 [icon: azure-virtual-machine]
+    }
+    App Tier [icon: azure-network-security-groups, color: yellow] {
+      Load Balancer [icon: azure-load-balancers]
+      vm-app-01 [icon: azure-virtual-machine]
+      vm-app-02 [icon: azure-virtual-machine]
+      vm-app-03 [icon: azure-virtual-machine]
+    }
+    Management Tier [icon: azure-network-security-groups, color: red] {
+      vm-mgmt-01 [icon: azure-virtual-machine]
+      Azure Monitor [icon: azure-monitor]
+      Recovery Vault [icon: azure-recovery-services-vaults]
+    }
+  }
+  
+  Multi Environment [icon: azure-policy] {
+    Development [icon: azure-resource-groups, color: lightgreen] {
+      Dev VMs [icon: azure-virtual-machine]
+    }
+    UAT [icon: azure-resource-groups, color: yellow] {
+      UAT VMs [icon: azure-virtual-machine]
+    }
+    Production [icon: azure-resource-groups, color: red] {
+      Prod VMs [icon: azure-virtual-machine]
+    }
+  }
+}
+
+Technology Stack [icon: terraform, color: brown] {
+  Terraform [icon: terraform]
+  Azure Provider [icon: azure-resource-groups]
+  PowerShell [icon: azure-powershell]
+}
+
+// Define connections
+Infrastructure Admin > A2Z PowerShell
+Infrastructure Admin > DevOps Pipeline
+A2Z PowerShell, DevOps Pipeline > Terraform Modules
+Terraform Modules > Control Plane > Virtual Network
+vm-web-01, vm-web-02, vm-web-03 > Load Balancer > vm-app-01, vm-app-02, vm-app-03
+Virtual Network > Development, UAT, Production
+DevOps Pipeline > ServiceNow
+Management Tier > Azure Monitor

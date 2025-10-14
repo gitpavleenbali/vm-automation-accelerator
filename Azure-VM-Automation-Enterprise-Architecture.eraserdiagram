@@ -1,0 +1,122 @@
+cloud-architecture-diagram
+
+title Azure VM Automation Accelerator - Enterprise Platform Architecture
+
+// User Interface & Self-Service Layer
+User Experience {
+    ServiceNow Portal [icon: azure-app-service, color: blue]
+    Self Service Catalog [icon: azure-marketplace, color: green] 
+    REST API Gateway [icon: azure-api-management, color: purple]
+}
+
+// Orchestration & DevOps Platform  
+Azure DevOps Platform [icon: azure-devops, color: navy] {
+    CI CD Pipelines [icon: azure-pipelines, color: blue]
+    Approval Workflows [icon: azure-logic-apps, color: green]
+    Variable Groups [icon: azure-key-vault, color: yellow]
+    Service Connections [icon: azure-active-directory, color: purple]
+}
+
+// Infrastructure Automation Engine
+Azure Cloud {
+    Automation Platform [icon: azure-resource-manager, color: green] {
+        Terraform Engine [icon: azure-container-instances, color: blue]
+        PowerShell Scripts [icon: azure-powershell, color: navy]
+        A2Z Validation [icon: azure-functions, color: orange]
+        Module Library [icon: azure-container-registry, color: purple]
+    }
+    
+    Control Plane [icon: azure-resource-groups, color: darkblue] {
+        State Management [icon: azure-storage-account, color: blue]
+        Key Vault Secrets [icon: azure-key-vault, color: yellow] 
+        Configuration Store [icon: azure-app-configuration, color: green]
+        Resource Groups [icon: azure-resource-groups, color: navy]
+    }
+    
+    Security Governance [icon: azure-policy, color: red] {
+        Azure Policy [icon: azure-policy, color: navy]
+        RBAC Controls [icon: azure-active-directory, color: purple]
+        Security Center [icon: azure-security-center, color: red]
+        Managed Identity [icon: azure-active-directory, color: blue]
+    }
+}
+
+// Multi-Environment Infrastructure
+Production Workloads [icon: azure-virtual-network, color: red] {
+    Web Tier [icon: azure-network-security-groups, color: green] {
+        Production VMs [icon: azure-virtual-machine, color: red]
+        Load Balancer [icon: azure-load-balancers, color: blue]
+        Application Gateway [icon: azure-application-gateway, color: purple]
+    }
+    App Tier [icon: azure-network-security-groups, color: yellow] {
+        Application VMs [icon: azure-virtual-machine, color: orange]
+        Backend Services [icon: azure-virtual-machine, color: navy]
+    }
+    Data Tier [icon: azure-network-security-groups, color: blue] {
+        Database VMs [icon: azure-virtual-machine, color: darkblue]
+        Storage Accounts [icon: azure-storage-account, color: green]
+    }
+}
+
+Development Environments [icon: azure-virtual-network, color: blue] {
+    Development Zone [icon: azure-resource-groups, color: lightblue] {
+        Dev VMs [icon: azure-virtual-machine, color: navy]
+        Test VMs [icon: azure-virtual-machine, color: purple]
+    }
+    UAT Environment [icon: azure-resource-groups, color: yellow] {
+        UAT VMs [icon: azure-virtual-machine, color: orange]
+        Integration VMs [icon: azure-virtual-machine, color: green]
+    }
+}
+
+// Operations & Monitoring Stack
+Operations Center [icon: azure-monitor, color: orange] {
+    Azure Monitor [icon: azure-monitor, color: blue]
+    Log Analytics [icon: azure-log-analytics, color: green]
+    Application Insights [icon: azure-application-insights, color: purple]
+    Backup Services [icon: azure-backup, color: red]
+    Recovery Vault [icon: azure-recovery-services-vaults, color: darkred]
+}
+
+// Terraform Module Architecture
+Module Framework [icon: terraform, color: brown] {
+    Naming Module [icon: azure-resource-groups, color: blue]
+    Network Module [icon: azure-virtual-network, color: green]
+    Compute Module [icon: azure-virtual-machine, color: orange]
+    Monitoring Module [icon: azure-monitor, color: purple]
+    Backup Module [icon: azure-backup, color: red]
+}
+
+// Enterprise Integrations
+External Systems [icon: azure-marketplace, color: gray] {
+    Active Directory [icon: azure-active-directory, color: purple]
+    ITSM Platform [icon: azure-service-health, color: blue]
+    Cost Management [icon: azure-cost-management, color: green]
+}
+
+// Connection Flows - User Journey
+ServiceNow Portal > REST API Gateway: "VM Request"
+REST API Gateway > CI CD Pipelines: "Trigger Pipeline"
+CI CD Pipelines > Approval Workflows: "Request Approval"
+Approval Workflows > Terraform Engine: "Deploy Infrastructure"
+Terraform Engine > Module Framework: "Execute Modules"
+Module Framework > Production Workloads: "Provision Resources"
+Module Framework > Development Environments: "Deploy VMs"
+
+// Security & Governance Flows
+Azure Policy > Production Workloads: "Enforce Policies"
+Azure Policy > Development Environments: "Apply Governance"
+RBAC Controls > Automation Platform: "Access Control"
+Managed Identity > Control Plane: "Secure Authentication"
+
+// Operational Flows
+Operations Center > Production Workloads: "Monitor Health"
+Operations Center > Development Environments: "Track Performance"
+Backup Services > Production Workloads: "Data Protection"
+Key Vault Secrets > Terraform Engine: "Secure Secrets"
+State Management > Module Framework: "State Storage"
+
+// Integration Flows
+Active Directory > RBAC Controls: "Identity Provider"
+ITSM Platform > ServiceNow Portal: "Service Management"
+Cost Management > Operations Center: "Cost Tracking"
