@@ -67,6 +67,11 @@ parameters:
     displayName: 'Publish deployment artifacts'
     default: true
 
+  - name: validateOnly
+    type: boolean
+    displayName: 'Validation only mode'
+    default: false
+
 steps:
   # ========================================
   # Step 1: Pre-execution Validation
@@ -123,6 +128,7 @@ steps:
   # ========================================
   - task: AzureCLI@2
     displayName: 'Execute Deployment - ${{ parameters.scriptName }}'
+    timeoutInMinutes: 30
     inputs:
       azureSubscription: ${{ parameters.azureServiceConnection }}
       scriptType: 'pscore'
@@ -155,21 +161,23 @@ steps:
         
         # Execute the PowerShell deployment script
         try {
+          $validateOnlyFlag = if ('${{ parameters.validateOnly }}' -eq 'True') { '-ValidateOnly' } else { '' }
+          
           if ("${{ parameters.scriptName }}" -eq "control-plane") {
             Write-Host "Executing Control Plane deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -SkipWorkloadZone -Verbose
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipWorkloadZone $validateOnlyFlag -Verbose"
           }
           elseif ("${{ parameters.scriptName }}" -eq "workload-zone") {
             Write-Host "Executing Workload Zone deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -SkipControlPlane -Verbose
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipControlPlane $validateOnlyFlag -Verbose"
           }
           elseif ("${{ parameters.scriptName }}" -eq "vm-deployment") {
             Write-Host "Executing VM deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -SkipControlPlane -SkipWorkloadZone -Verbose
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipControlPlane -SkipWorkloadZone $validateOnlyFlag -Verbose"
           }
           else {
             Write-Host "Executing full deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -Verbose
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" $validateOnlyFlag -Verbose"
           }
           
           Write-Host "Deployment completed successfully"

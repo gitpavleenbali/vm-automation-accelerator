@@ -45,6 +45,11 @@ parameters:
     type: boolean
     default: false
 
+  - name: validateOnly
+    displayName: 'Validation only mode (no actual deployment)'
+    type: boolean
+    default: false
+
 variables:
   - group: vm-automation-secrets-${{ parameters.environment }}
   - name: azureServiceConnection
@@ -81,6 +86,7 @@ stages:
               skipValidation: false
               cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
               publishArtifacts: true
+              validateOnly: ${{ parameters.validateOnly }}
 
   # ========================================
   # STAGE 2: Approval Gate (Production)
@@ -151,6 +157,7 @@ stages:
               skipValidation: false
               cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
               publishArtifacts: true
+              validateOnly: ${{ parameters.validateOnly }}
 
   # ========================================
   # STAGE 4: Approval Gate (Production)
@@ -224,6 +231,7 @@ stages:
               skipValidation: false
               cleanupOnFailure: ${{ ne(parameters.environment, 'prod') }}
               publishArtifacts: true
+              validateOnly: ${{ parameters.validateOnly }}
 
   # ========================================
   # STAGE 6: Post-Deployment Validation
