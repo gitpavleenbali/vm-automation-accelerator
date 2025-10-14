@@ -68,9 +68,9 @@ stages:
         steps:
           - checkout: self
           
-          - template: templates/script-execution-template.yml
+          - template: templates/script-execution-template-windows.yml
             parameters:
-              scriptPath: 'deploy/scripts/deploy_control_plane.sh'
+              scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
               scriptName: 'control-plane'
               environment: ${{ parameters.environment }}
               workspacePrefix: ${{ parameters.workspacePrefix }}
@@ -138,9 +138,9 @@ stages:
         steps:
           - checkout: self
           
-          - template: templates/script-execution-template.yml
+          - template: templates/script-execution-template-windows.yml
             parameters:
-              scriptPath: 'deploy/scripts/deploy_workload_zone.sh'
+              scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
               scriptName: 'workload-zone'
               environment: ${{ parameters.environment }}
               workspacePrefix: ${{ parameters.workspacePrefix }}
@@ -211,9 +211,9 @@ stages:
         steps:
           - checkout: self
           
-          - template: templates/script-execution-template.yml
+          - template: templates/script-execution-template-windows.yml
             parameters:
-              scriptPath: 'deploy/scripts/deploy_vm.sh'
+              scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
               scriptName: 'vm-deployment'
               environment: ${{ parameters.environment }}
               workspacePrefix: ${{ parameters.workspacePrefix }}

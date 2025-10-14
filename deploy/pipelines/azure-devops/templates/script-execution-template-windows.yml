@@ -1,0 +1,216 @@
+# Azure DevOps Pipeline Template: Script Execution (Windows)
+# Reusable template for executing VM Automation deployment scripts on Windows agents
+# Uses PowerShell instead of bash for Windows compatibility
+
+parameters:
+  - name: scriptPath
+    type: string
+    displayName: 'Path to deployment script (relative to repo root)'
+  
+  - name: scriptName
+    type: string
+    displayName: 'Friendly name for the script (for logging)'
+  
+  - name: environment
+    type: string
+    displayName: 'Target environment (dev, uat, prod)'
+    default: 'dev'
+  
+  - name: workspacePrefix
+    type: string
+    displayName: 'Workspace prefix for VM naming'
+    default: ''
+  
+  - name: deploymentMode
+    type: string
+    displayName: 'Deployment mode'
+    default: 'bootstrap'
+    values:
+      - bootstrap  # Local state (initial deployment)
+      - run        # Remote state (production deployment)
+  
+  - name: action
+    type: string
+    displayName: 'Deployment action'
+    default: 'deploy'
+    values:
+      - deploy
+      - destroy
+      - validate
+  
+  - name: additionalArgs
+    type: string
+    displayName: 'Additional arguments to pass to script'
+    default: ''
+  
+  - name: azureServiceConnection
+    type: string
+    displayName: 'Azure service connection name'
+  
+  - name: workingDirectory
+    type: string
+    displayName: 'Working directory for script execution'
+    default: '$(System.DefaultWorkingDirectory)'
+  
+  - name: skipValidation
+    type: boolean
+    displayName: 'Skip pre-deployment validation'
+    default: false
+  
+  - name: cleanupOnFailure
+    type: boolean
+    displayName: 'Run cleanup on failure'
+    default: true
+  
+  - name: publishArtifacts
+    type: boolean
+    displayName: 'Publish deployment artifacts'
+    default: true
+
+steps:
+  # ========================================
+  # Step 1: Pre-execution Validation
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Pre-execution Validation - ${{ parameters.scriptName }}'
+    condition: and(succeeded(), eq(${{ parameters.skipValidation }}, false))
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        Write-Host "=============================================="
+        Write-Host "Pre-execution Validation: ${{ parameters.scriptName }}"
+        Write-Host "=============================================="
+        
+        # Check script exists
+        if (-not (Test-Path "${{ parameters.scriptPath }}")) {
+          Write-Host "##vso[task.logissue type=error]Script not found: ${{ parameters.scriptPath }}"
+          exit 1
+        }
+        
+        # Validate environment parameter
+        if ("${{ parameters.environment }}" -notin @("dev", "uat", "prod")) {
+          Write-Host "##vso[task.logissue type=error]Invalid environment: ${{ parameters.environment }}"
+          exit 1
+        }
+        
+        # Check Azure CLI authentication
+        Write-Host "Verifying Azure CLI authentication..."
+        try {
+          $account = az account show | ConvertFrom-Json
+          Write-Host "Connected to subscription: $($account.name) ($($account.id))"
+        }
+        catch {
+          Write-Host "##vso[task.logissue type=error]Azure CLI authentication failed"
+          exit 1
+        }
+        
+        # Check Terraform version
+        try {
+          $terraformVersion = terraform version -json | ConvertFrom-Json
+          Write-Host "Terraform version: $($terraformVersion.terraform_version)"
+        }
+        catch {
+          Write-Host "##vso[task.logissue type=warning]Terraform not found in PATH"
+        }
+        
+        Write-Host "Pre-execution validation completed successfully"
+
+  # ========================================
+  # Step 2: Execute PowerShell Deployment Script
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Execute Deployment - ${{ parameters.scriptName }}'
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        Write-Host "=============================================="
+        Write-Host "Executing: ${{ parameters.scriptName }}"
+        Write-Host "=============================================="
+        
+        # Set error handling
+        $ErrorActionPreference = "Stop"
+        
+        # Set deployment parameters
+        $env:ENVIRONMENT = "${{ parameters.environment }}"
+        $env:WORKSPACE_PREFIX = "${{ parameters.workspacePrefix }}"
+        $env:DEPLOYMENT_MODE = "${{ parameters.deploymentMode }}"
+        $env:ACTION = "${{ parameters.action }}"
+        
+        # Get Azure context
+        $account = az account show | ConvertFrom-Json
+        $env:ARM_SUBSCRIPTION_ID = $account.id
+        $env:ARM_TENANT_ID = $account.tenantId
+        
+        Write-Host "Environment: ${{ parameters.environment }}"
+        Write-Host "Workspace Prefix: ${{ parameters.workspacePrefix }}"
+        Write-Host "Deployment Mode: ${{ parameters.deploymentMode }}"
+        Write-Host "Action: ${{ parameters.action }}"
+        Write-Host "Subscription: $($account.name)"
+        
+        # Execute the PowerShell deployment script
+        try {
+          if ("${{ parameters.scriptName }}" -eq "control-plane") {
+            Write-Host "Executing Control Plane deployment..."
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "ControlPlane" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+          }
+          elseif ("${{ parameters.scriptName }}" -eq "workload-zone") {
+            Write-Host "Executing Workload Zone deployment..."
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "WorkloadZone" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+          }
+          elseif ("${{ parameters.scriptName }}" -eq "vm-deployment") {
+            Write-Host "Executing VM deployment..."
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "VMDeployment" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+          }
+          else {
+            Write-Host "Executing full deployment..."
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "All" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+          }
+          
+          Write-Host "Deployment completed successfully"
+        }
+        catch {
+          Write-Host "##vso[task.logissue type=error]Deployment failed: $($_.Exception.Message)"
+          if (${{ parameters.cleanupOnFailure }}) {
+            Write-Host "Running cleanup on failure..."
+            # Add cleanup logic here if needed
+          }
+          throw
+        }
+
+  # ========================================
+  # Step 3: Publish Artifacts (Optional)
+  # ========================================
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }}'
+    condition: and(succeeded(), eq(${{ parameters.publishArtifacts }}, true))
+    inputs:
+      PathtoPublish: '$(System.DefaultWorkingDirectory)/terraform-output'
+      ArtifactName: 'terraform-output-${{ parameters.scriptName }}-${{ parameters.environment }}'
+      publishLocation: 'Container'
+    continueOnError: true
+
+  # ========================================
+  # Step 4: Deployment Summary
+  # ========================================
+  - task: AzureCLI@2
+    displayName: 'Deployment Summary - ${{ parameters.scriptName }}'
+    condition: always()
+    inputs:
+      azureSubscription: ${{ parameters.azureServiceConnection }}
+      scriptType: 'pscore'
+      scriptLocation: 'inlineScript'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      inlineScript: |
+        Write-Host "=============================================="
+        Write-Host "Deployment Summary: ${{ parameters.scriptName }}"
+        Write-Host "=============================================="
+        Write-Host "Environment: ${{ parameters.environment }}"
+        Write-Host "Workspace Prefix: ${{ parameters.workspacePrefix }}"
+        Write-Host "Status: $(if ($env:AGENT_JOBSTATUS -eq 'Succeeded') { 'SUCCESS' } else { 'FAILED' })"
+        Write-Host "=============================================="
