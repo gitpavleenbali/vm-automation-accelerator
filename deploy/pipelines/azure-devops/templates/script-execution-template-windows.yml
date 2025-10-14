@@ -157,26 +157,26 @@ steps:
         try {
           if ("${{ parameters.scriptName }}" -eq "control-plane") {
             Write-Host "Executing Control Plane deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "ControlPlane" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -SkipWorkloadZone -Verbose
           }
           elseif ("${{ parameters.scriptName }}" -eq "workload-zone") {
             Write-Host "Executing Workload Zone deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "WorkloadZone" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -SkipControlPlane -Verbose
           }
           elseif ("${{ parameters.scriptName }}" -eq "vm-deployment") {
             Write-Host "Executing VM deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "VMDeployment" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -SkipControlPlane -SkipWorkloadZone -Verbose
           }
           else {
             Write-Host "Executing full deployment..."
-            & ".\Deploy-VMAutomationAccelerator.ps1" -Phase "All" -Environment "${{ parameters.environment }}" -WorkspacePrefix "${{ parameters.workspacePrefix }}" -Verbose
+            & ".\Deploy-VMAutomationAccelerator.ps1" -Environment "${{ parameters.environment }}" -Verbose
           }
           
           Write-Host "Deployment completed successfully"
         }
         catch {
           Write-Host "##vso[task.logissue type=error]Deployment failed: $($_.Exception.Message)"
-          if (${{ parameters.cleanupOnFailure }}) {
+          if ('${{ parameters.cleanupOnFailure }}' -eq 'True') {
             Write-Host "Running cleanup on failure..."
             # Add cleanup logic here if needed
           }

@@ -14,7 +14,7 @@ trigger:
     include:
       - deploy/terraform/bootstrap/control-plane/**
       - deploy/terraform/run/control-plane/**
-      - deploy/scripts/deploy_control_plane.sh
+      - Deploy-VMAutomationAccelerator.ps1
       - deploy/pipelines/azure-devops/control-plane-pipeline.yml
 
 pr:
@@ -69,7 +69,7 @@ variables:
   - name: azureServiceConnection
     value: 'azure-${{ parameters.environment }}-service-connection'
   - name: scriptPath
-    value: 'deploy/scripts/deploy_control_plane.sh'
+    value: 'Deploy-VMAutomationAccelerator.ps1'
   - name: workingDirectory
     value: '$(System.DefaultWorkingDirectory)'
   - name: environment
@@ -78,7 +78,7 @@ variables:
     value: ${{ eq(parameters.environment, 'prod') }}
 
 pool:
-  vmImage: 'ubuntu-latest'
+  name: 'Default'
 
 stages:
   # ========================================
@@ -189,7 +189,7 @@ stages:
         steps:
           - checkout: self
           
-          - template: templates/script-execution-template.yml
+          - template: templates/script-execution-template-windows.yml
             parameters:
               scriptPath: $(scriptPath)
               scriptName: 'control-plane-deployment'
@@ -433,7 +433,7 @@ stages:
         steps:
           - checkout: self
           
-          - template: templates/script-execution-template.yml
+          - template: templates/script-execution-template-windows.yml
             parameters:
               scriptPath: $(scriptPath)
               scriptName: 'control-plane-destruction'
