@@ -36,7 +36,7 @@ locals {
     environment       = var.environment
     workload          = var.workload_name
     deployment_time   = timestamp()
-    terraform_version = terraform.version
+    terraform_version = "1.13.3"
     module_version    = "1.0.0" # Update when module versions change
   }
   
@@ -44,7 +44,7 @@ locals {
   telemetry_tags = {
     "accelerator:deployment_id" = random_uuid.deployment_id.result
     "accelerator:version"       = "1.0.0"
-    "accelerator:terraform"     = terraform.version
+    "accelerator:terraform"     = "1.13.3"
     "accelerator:timestamp"     = formatdate("YYYY-MM-DD'T'hh:mm:ssZ", timestamp())
   }
 }
@@ -61,7 +61,7 @@ resource "local_file" "deployment_record" {
     environment       = var.environment
     workload          = var.workload_name
     deployment_time   = timestamp()
-    terraform_version = terraform.version
+    terraform_version = "1.13.3"
     
     # Resource counts
     vm_count          = length(var.linux_vms) + length(var.windows_vms)

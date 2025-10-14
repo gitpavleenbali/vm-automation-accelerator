@@ -6,9 +6,9 @@
 terraform {
   required_version = ">= 1.5.0"
   
-  # Local backend for bootstrap (will migrate to remote after creation)
-  backend "local" {
-    path = "terraform.tfstate"
+  # Remote backend configuration (migrated from local after bootstrap)
+  backend "azurerm" {
+    # Configuration provided via terraform init -backend-config parameters
   }
   
   required_providers {
@@ -24,6 +24,7 @@ terraform {
 }
 
 provider "azurerm" {
+  storage_use_azuread = true
   features {
     resource_group {
       prevent_deletion_if_contains_resources = false
@@ -94,6 +95,7 @@ resource "azurerm_storage_account" "tfstate" {
   account_tier             = var.tfstate_storage_account_tier
   account_replication_type = var.tfstate_storage_replication_type
   min_tls_version          = "TLS1_2"
+  shared_access_key_enabled = false
   
   blob_properties {
     versioning_enabled = true
@@ -116,9 +118,16 @@ resource "azurerm_storage_account" "tfstate" {
 }
 
 resource "azurerm_storage_container" "tfstate" {
-  name                  = var.tfstate_container_name
-  storage_account_id    = azurerm_storage_account.tfstate.id
+  name                 = var.tfstate_container_name
+  storage_account_name = azurerm_storage_account.tfstate.name
   container_access_type = "private"
+}
+
+# Role assignment for current user to access storage account with Azure AD
+resource "azurerm_role_assignment" "storage_blob_data_contributor" {
+  scope                = azurerm_storage_account.tfstate.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = data.azurerm_client_config.current.object_id
 }
 
 ###############################################################################

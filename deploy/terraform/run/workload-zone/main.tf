@@ -32,6 +32,7 @@ terraform {
 # Main provider for workload zone resources
 provider "azurerm" {
   alias = "main"
+  storage_use_azuread = true
   
   features {
     resource_group {
@@ -44,6 +45,8 @@ provider "azurerm" {
 
 # Default provider (aliases to main)
 provider "azurerm" {
+  storage_use_azuread = true
+  
   features {
     resource_group {
       prevent_deletion_if_contains_resources = false
@@ -72,19 +75,56 @@ module "naming" {
   instance_number  = var.instance_number
   
   resource_prefixes = {
-    resource_group  = "rg"
-    vnet            = "vnet"
-    subnet          = "snet"
-    nsg             = "nsg"
-    route_table     = "rt"
+    # Compute
+    vm                    = "vm"
+    vmss                  = "vmss"
+    nic                   = "nic"
+    pip                   = "pip"
+    
+    # Storage
+    storage_account       = "st"
+    disk                  = "disk"
+    
+    # Networking
+    vnet                  = "vnet"
+    subnet                = "snet"
+    nsg                   = "nsg"
+    route_table           = "rt"
+    load_balancer         = "lb"
+    application_gateway   = "agw"
+    
+    # Security
+    key_vault             = "kv"
+    managed_identity      = "id"
+    
+    # Monitoring
+    log_analytics         = "log"
+    application_insights  = "appi"
+    action_group          = "ag"
+    
+    # Resource Group
+    resource_group        = "rg"
   }
   
   resource_suffixes = {
-    resource_group  = "wz-rg"
-    vnet            = "vnet"
-    subnet          = "snet"
-    nsg             = "nsg"
-    route_table     = "rt"
+    vm                    = ""
+    vmss                  = ""
+    nic                   = ""
+    pip                   = ""
+    storage_account       = ""
+    disk                  = ""
+    vnet                  = ""
+    subnet                = ""
+    nsg                   = ""
+    route_table           = ""
+    load_balancer         = ""
+    application_gateway   = ""
+    key_vault             = ""
+    managed_identity      = ""
+    log_analytics         = ""
+    application_insights  = ""
+    action_group          = ""
+    resource_group        = ""
   }
 }
 
@@ -96,7 +136,7 @@ resource "azurerm_resource_group" "workload_zone" {
   count    = var.resource_group_name != null ? 0 : 1
   provider = azurerm.main
   
-  name     = module.naming.resource_group_name
+  name     = module.naming.resource_group_names["network"]
   location = var.location
   tags     = merge(local.common_tags, { Purpose = "Network Infrastructure" })
 }
@@ -109,7 +149,7 @@ resource "azurerm_network_ddos_protection_plan" "workload_zone" {
   count               = var.enable_ddos_protection && var.ddos_protection_plan_id == null ? 1 : 0
   provider            = azurerm.main
   
-  name                = "${module.naming.resource_group_name}-ddos"
+  name                = "${module.naming.resource_group_names["network"]}-ddos"
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   
@@ -164,7 +204,7 @@ resource "azurerm_network_security_group" "subnets" {
   for_each = var.enable_nsg ? var.subnets : {}
   provider = azurerm.main
   
-  name                = "${module.naming.nsg_name}-${each.key}"
+  name                = module.naming.nsg_names[each.key]
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   
@@ -266,7 +306,7 @@ resource "azurerm_subnet" "workload_zone" {
   for_each = var.subnets
   provider = azurerm.main
   
-  name                 = "${module.naming.subnet_name}-${each.key}"
+  name                 = module.naming.subnet_names[each.key]
   resource_group_name  = local.resource_group_name
   virtual_network_name = azurerm_virtual_network.workload_zone.name
   address_prefixes     = [each.value.address_prefix]

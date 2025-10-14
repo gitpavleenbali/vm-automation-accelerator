@@ -24,6 +24,7 @@ data "terraform_remote_state" "control_plane" {
     storage_account_name = var.control_plane_storage_account
     container_name       = var.control_plane_container_name
     key                  = "control-plane.tfstate"
+    use_azuread_auth    = true
   }
 }
 
@@ -40,6 +41,7 @@ data "terraform_remote_state" "workload_zone" {
     storage_account_name = var.control_plane_storage_account
     container_name       = var.control_plane_container_name
     key                  = var.workload_zone_key
+    use_azuread_auth    = true
   }
 }
 

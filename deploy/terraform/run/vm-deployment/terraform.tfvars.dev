@@ -1,0 +1,88 @@
+###############################################################################
+# Test Template Reusability - Development Environment
+# Demonstrates parameterization and reusability of VM automation templates
+###############################################################################
+
+# Environment-specific values for testing template reusability
+environment      = "dev"
+location        = "eastus"
+project_code    = "vmaut"
+workload_name   = "testing"
+instance_number = "02"
+
+# Control plane configuration
+control_plane_subscription_id   = "37ffd444-46e0-41dd-9e4b-f12857262095"
+control_plane_resource_group   = "rg-vmaut-controlplane-eus-shared"
+control_plane_storage_account  = "stvmautcpsharedeus"
+control_plane_container_name   = "tfstate"
+
+# Workload zone configuration
+workload_zone_subscription_id  = "37ffd444-46e0-41dd-9e4b-f12857262095"
+workload_zone_resource_group  = "rg-vmaut-workloadzone-eus-shared"
+workload_zone_key             = "workloadzone-dev-vmaut.tfstate"
+
+# VM Configuration - Testing different parameters
+vm_configurations = {
+  web01 = {
+    vm_name            = "vm-dev-eus-testing-02-web01"
+    vm_size           = "Standard_B1s"  # Smaller size for dev
+    os_type           = "linux"
+    os_disk_size_gb   = 30
+    enable_data_disk  = false  # No data disk for dev
+    subnet_type       = "web"
+    admin_username    = "devuser"
+    authentication_type = "password"
+    enable_backup     = false  # No backup for dev
+    enable_monitoring = false  # Minimal monitoring for dev
+  }
+  
+  app01 = {
+    vm_name            = "vm-dev-eus-testing-02-app01"
+    vm_size           = "Standard_B1s"  # Smaller size for dev
+    os_type           = "linux"
+    os_disk_size_gb   = 30
+    enable_data_disk  = false
+    subnet_type       = "app"
+    admin_username    = "devuser"
+    authentication_type = "password"
+    enable_backup     = false
+    enable_monitoring = false
+  }
+}
+
+# Network Security Group Rules - Dev-specific (more permissive)
+custom_nsg_rules = {
+  allow_ssh_from_internet = {
+    priority                   = 1000
+    direction                 = "Inbound"
+    access                   = "Allow"
+    protocol                 = "Tcp"
+    source_port_range        = "*"
+    destination_port_range   = "22"
+    source_address_prefix    = "*"  # More permissive for dev
+    destination_address_prefix = "*"
+  }
+  
+  allow_http_dev = {
+    priority                   = 1010
+    direction                 = "Inbound"
+    access                   = "Allow"
+    protocol                 = "Tcp"
+    source_port_range        = "*"
+    destination_port_range   = "8080"  # Dev port
+    source_address_prefix    = "*"
+    destination_address_prefix = "*"
+  }
+}
+
+# Development-specific tags
+tags = {
+  Environment      = "Development"
+  Project         = "VM-Automation-Accelerator"
+  Workload        = "Testing"
+  Owner           = "DevTeam"
+  CostCenter      = "Development"
+  AutoShutdown    = "true"
+  BackupRequired  = "false"
+  MonitoringLevel = "basic"
+}

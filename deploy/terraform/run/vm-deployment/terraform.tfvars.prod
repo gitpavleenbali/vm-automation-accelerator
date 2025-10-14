@@ -1,0 +1,166 @@
+###############################################################################
+# Test Template Reusability - Production Environment
+# Demonstrates parameterization and reusability with production-grade settings
+###############################################################################
+
+# Production environment values
+environment      = "prod"
+location        = "eastus"
+project_code    = "vmaut"
+workload_name   = "web"
+instance_number = "01"
+
+# Control plane configuration (same as dev - reusable infrastructure)
+control_plane_subscription_id   = "37ffd444-46e0-41dd-9e4b-f12857262095"
+control_plane_resource_group   = "rg-vmaut-controlplane-eus-shared"
+control_plane_storage_account  = "stvmautcpsharedeus"
+control_plane_container_name   = "tfstate"
+
+# Workload zone configuration
+workload_zone_subscription_id  = "37ffd444-46e0-41dd-9e4b-f12857262095"
+workload_zone_resource_group  = "rg-vmaut-workloadzone-eus-shared"
+workload_zone_key             = "workloadzone-prod-vmaut.tfstate"
+
+# VM Configuration - Production-grade parameters
+vm_configurations = {
+  web01 = {
+    vm_name            = "vm-prod-eus-web-01-web01"
+    vm_size           = "Standard_D4s_v3"  # Larger size for prod
+    os_type           = "linux"
+    os_disk_size_gb   = 128  # Larger OS disk
+    enable_data_disk  = true
+    data_disk_size_gb = 512  # Large data disk
+    data_disk_type    = "Premium_LRS"  # Premium storage
+    subnet_type       = "web"
+    admin_username    = "prodadmin"
+    authentication_type = "ssh_key"  # SSH key auth for prod
+    enable_backup     = true  # Backup enabled
+    enable_monitoring = true  # Full monitoring
+    availability_zone = "1"   # AZ for HA
+  }
+  
+  web02 = {
+    vm_name            = "vm-prod-eus-web-01-web02"
+    vm_size           = "Standard_D4s_v3"
+    os_type           = "linux"
+    os_disk_size_gb   = 128
+    enable_data_disk  = true
+    data_disk_size_gb = 512
+    data_disk_type    = "Premium_LRS"
+    subnet_type       = "web"
+    admin_username    = "prodadmin"
+    authentication_type = "ssh_key"
+    enable_backup     = true
+    enable_monitoring = true
+    availability_zone = "2"   # Different AZ for HA
+  }
+  
+  app01 = {
+    vm_name            = "vm-prod-eus-web-01-app01"
+    vm_size           = "Standard_D8s_v3"  # Even larger for app tier
+    os_type           = "linux"
+    os_disk_size_gb   = 256
+    enable_data_disk  = true
+    data_disk_size_gb = 1024  # Very large data disk
+    data_disk_type    = "Premium_LRS"
+    subnet_type       = "app"
+    admin_username    = "prodadmin"
+    authentication_type = "ssh_key"
+    enable_backup     = true
+    enable_monitoring = true
+    availability_zone = "1"
+  }
+  
+  mgmt01 = {
+    vm_name            = "vm-prod-eus-web-01-mgmt01"
+    vm_size           = "Standard_D2s_v3"
+    os_type           = "windows"
+    os_disk_size_gb   = 128
+    enable_data_disk  = true
+    data_disk_size_gb = 256
+    data_disk_type    = "StandardSSD_LRS"
+    subnet_type       = "mgmt"
+    admin_username    = "prodadmin"
+    authentication_type = "password"
+    enable_backup     = true
+    enable_monitoring = true
+    availability_zone = "3"
+  }
+}
+
+# Network Security Group Rules - Production (restrictive)
+custom_nsg_rules = {
+  allow_ssh_from_bastion = {
+    priority                   = 1000
+    direction                 = "Inbound"
+    access                   = "Allow"
+    protocol                 = "Tcp"
+    source_port_range        = "*"
+    destination_port_range   = "22"
+    source_address_prefix    = "10.100.10.0/24"  # Only from mgmt subnet
+    destination_address_prefix = "*"
+  }
+  
+  allow_https_prod = {
+    priority                   = 1010
+    direction                 = "Inbound"
+    access                   = "Allow"
+    protocol                 = "Tcp"
+    source_port_range        = "*"
+    destination_port_range   = "443"  # HTTPS only
+    source_address_prefix    = "*"
+    destination_address_prefix = "*"
+  }
+  
+  deny_all_inbound = {
+    priority                   = 4000
+    direction                 = "Inbound"
+    access                   = "Deny"
+    protocol                 = "*"
+    source_port_range        = "*"
+    destination_port_range   = "*"
+    source_address_prefix    = "*"
+    destination_address_prefix = "*"
+  }
+}
+
+# Backup Policy Configuration
+backup_policies = {
+  production_daily = {
+    name      = "production-daily-backup"
+    frequency = "Daily"
+    time      = "02:00"
+    retention_daily_count = 7
+    retention_weekly = {
+      count    = 4
+      weekdays = ["Sunday"]
+    }
+    retention_monthly = {
+      count    = 12
+      weekdays = ["Sunday"]
+      weeks    = ["First"]
+    }
+    retention_yearly = {
+      count    = 7
+      weekdays = ["Sunday"]
+      weeks    = ["First"]
+      months   = ["January"]
+    }
+    timezone = "Eastern Standard Time"
+  }
+}
+
+# Production-specific tags
+tags = {
+  Environment         = "Production"
+  Project            = "VM-Automation-Accelerator"
+  Workload           = "WebApplication"
+  Owner              = "ProductionTeam"
+  CostCenter         = "Production-WebServices"
+  AutoShutdown       = "false"
+  BackupRequired     = "true"
+  MonitoringLevel    = "comprehensive"
+  Criticality        = "high"
+  BusinessUnit       = "WebServices"
+  DataClassification = "internal"
+}

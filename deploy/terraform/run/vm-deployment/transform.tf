@@ -53,6 +53,7 @@ locals {
       size           = config.size
       zone           = config.zone
       admin_username = config.admin_username
+      admin_password = config.admin_password
       disable_password_auth = config.disable_password_auth
       ssh_public_key = config.ssh_public_key
       
@@ -222,8 +223,8 @@ locals {
     linux_vm_count             = length(local.linux_vms)
     windows_vm_count           = length(local.windows_vms)
     total_vm_count             = length(local.all_vms)
-    create_availability_set    = local.availability.enable_availability_set && local.computed.total_vm_count > 1
-    create_proximity_group     = local.availability.enable_proximity_placement_group && local.computed.total_vm_count > 1
+    create_availability_set    = local.availability.enable_availability_set && length(local.all_vms) > 1
+    create_proximity_group     = local.availability.enable_proximity_placement_group && length(local.all_vms) > 1
     create_load_balancer       = local.load_balancer.enabled && local.load_balancer.config != null
     create_backup              = local.backup.enabled
     create_arm_tracking        = var.enable_arm_deployment_tracking

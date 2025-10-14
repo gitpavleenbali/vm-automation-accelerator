@@ -9,7 +9,7 @@ locals {
   subscription_id = data.azurerm_client_config.current.subscription_id
   
   # Resource Group
-  resource_group_name     = var.resource_group_name != null ? var.resource_group_name : "rg-${var.environment}-${var.location}-workload-zone"
+  resource_group_name     = var.resource_group_name != null ? var.resource_group_name : module.naming.resource_group_names["network"]
   resource_group_location = var.location
   
   # Common Tags

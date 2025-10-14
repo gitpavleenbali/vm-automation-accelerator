@@ -48,6 +48,23 @@ tfplan
 
 # Sensitive output files
 terraform-outputs.json
+
+# Internal documentation and analysis (moved to _docs)
+_docs/
+**/Performance-Cost-Optimization*
+**/validate-cost-optimization*
+**/*validation-report*
+**/*optimized-*
+
+# Test files and temporary configs
+**/test-*
+**/*.log
+**/Cost-Optimization-Validation-Results.json
+
+# Environment-specific secrets and auto-generated configs
+**/*.auto.tfvars
+**/secrets.tfvars
+**/local.tfvars
 outputs.json
 
 # Backup files

@@ -13,7 +13,6 @@
 
 locals {
   # Subscription and tenant info
-  subscription_id = data.azurerm_client_config.current.subscription_id
   tenant_id       = data.azurerm_client_config.current.tenant_id
   
   # Environment configuration
@@ -122,8 +121,8 @@ locals {
 
   # Computed values
   computed = {
-    resource_group_id = local.resource_group.use_existing ? data.azurerm_resource_group.existing[0].id : azurerm_resource_group.control_plane[0].id
-    resource_group_name = local.resource_group.use_existing ? data.azurerm_resource_group.existing[0].name : azurerm_resource_group.control_plane[0].name
+    resource_group_id = local.resource_group.use_existing ? data.azurerm_resource_group.control_plane[0].id : azurerm_resource_group.control_plane[0].id
+    resource_group_name = local.resource_group.use_existing ? data.azurerm_resource_group.control_plane[0].name : azurerm_resource_group.control_plane[0].name
     create_state_storage = true
     create_key_vault     = var.create_key_vault
   }

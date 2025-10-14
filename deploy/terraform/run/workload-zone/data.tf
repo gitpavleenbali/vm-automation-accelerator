@@ -24,6 +24,7 @@ data "terraform_remote_state" "control_plane" {
     storage_account_name = var.control_plane_storage_account
     container_name       = var.control_plane_container_name
     key                  = "control-plane.tfstate"
+    use_azuread_auth     = true
   }
 }
 
@@ -32,9 +33,9 @@ data "terraform_remote_state" "control_plane" {
 # ============================================================================
 
 data "azurerm_resource_group" "existing" {
-  count    = local.resource_group.use_existing ? 1 : 0
+  count    = var.resource_group_name != null ? 1 : 0
   provider = azurerm.main
-  name     = local.resource_group.name
+  name     = var.resource_group_name
 }
 
 # ============================================================================

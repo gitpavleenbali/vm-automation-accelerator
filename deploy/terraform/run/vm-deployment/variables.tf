@@ -112,6 +112,7 @@ variable "linux_vms" {
     size                 = string
     zone                 = optional(string, null)
     admin_username       = optional(string, "azureuser")
+    admin_password       = optional(string, null)
     disable_password_auth = optional(bool, true)
     ssh_public_key       = optional(string, null)
     source_image_reference = optional(object({

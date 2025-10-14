@@ -36,6 +36,7 @@ terraform {
 # Main provider for VM resources
 provider "azurerm" {
   alias = "main"
+  storage_use_azuread = true
   
   features {
     resource_group {
@@ -52,6 +53,8 @@ provider "azurerm" {
 
 # Default provider (aliases to main)
 provider "azurerm" {
+  storage_use_azuread = true
+  
   features {
     resource_group {
       prevent_deletion_if_contains_resources = false
@@ -87,25 +90,62 @@ module "naming" {
   instance_number  = local.workload.instance_number
   
   resource_prefixes = {
-    resource_group = "rg"
-    vm             = "vm"
-    nic            = "nic"
-    disk           = "disk"
-    pip            = "pip"
-    lb             = "lb"
-    avset          = "avset"
-    ppg            = "ppg"
+    # Compute
+    vm                    = "vm"
+    vmss                  = "vmss"
+    nic                   = "nic"
+    pip                   = "pip"
+    
+    # Storage
+    storage_account       = "st"
+    disk                  = "disk"
+    
+    # Networking
+    vnet                  = "vnet"
+    subnet                = "snet"
+    nsg                   = "nsg"
+    route_table           = "rt"
+    load_balancer         = "lb"
+    application_gateway   = "agw"
+    
+    # Security
+    key_vault             = "kv"
+    managed_identity      = "id"
+    
+    # Monitoring
+    log_analytics         = "log"
+    application_insights  = "appi"
+    action_group          = "ag"
+    
+    # Resource Group
+    resource_group        = "rg"
+    
+    # VM-specific (legacy compatibility)
+    avset                 = "avset"
+    ppg                   = "ppg"
   }
   
   resource_suffixes = {
-    resource_group = "vm-rg"
-    vm             = "vm"
-    nic            = "nic"
-    disk           = "disk"
-    pip            = "pip"
-    lb             = "lb"
-    avset          = "avset"
-    ppg            = "ppg"
+    vm                    = ""
+    vmss                  = ""
+    nic                   = ""
+    pip                   = ""
+    storage_account       = ""
+    disk                  = ""
+    vnet                  = ""
+    subnet                = ""
+    nsg                   = ""
+    route_table           = ""
+    load_balancer         = ""
+    application_gateway   = ""
+    key_vault             = ""
+    managed_identity      = ""
+    log_analytics         = ""
+    application_insights  = ""
+    action_group          = ""
+    resource_group        = ""
+    avset                 = ""
+    ppg                   = ""
   }
 }
 
@@ -117,7 +157,7 @@ resource "azurerm_resource_group" "vm_deployment" {
   count    = local.resource_group.use_existing ? 0 : 1
   provider = azurerm.main
   
-  name     = coalesce(local.resource_group.name, module.naming.resource_group_name)
+  name     = coalesce(local.resource_group.name, module.naming.resource_group_names["compute"])
   location = local.resource_group.location
   tags     = local.resource_group.tags
 }
@@ -144,7 +184,7 @@ resource "azurerm_proximity_placement_group" "vm_deployment" {
   count               = local.computed.create_proximity_group ? 1 : 0
   provider            = azurerm.main
   
-  name                = "${module.naming.resource_group_name}-ppg"
+  name                = "${module.naming.resource_group_names["compute"]}-ppg"
   resource_group_name = local.resource_group_name
   location            = local.resource_group_location
   
@@ -161,7 +201,7 @@ resource "azurerm_availability_set" "vm_deployment" {
   count                        = local.computed.create_availability_set ? 1 : 0
   provider                     = azurerm.main
   
-  name                         = "${module.naming.resource_group_name}-avset"
+  name                         = "${module.naming.resource_group_names["compute"]}-avset"
   resource_group_name          = local.resource_group_name
   location                     = local.resource_group_location
   platform_fault_domain_count  = local.availability.availability_set.platform_fault_domain_count
@@ -292,6 +332,7 @@ resource "azurerm_linux_virtual_machine" "vms" {
   zone                = each.value.zone
   
   admin_username                  = each.value.admin_username
+  admin_password                  = each.value.disable_password_auth ? null : each.value.admin_password
   disable_password_authentication = each.value.disable_password_auth
   
   network_interface_ids = [
@@ -333,6 +374,11 @@ resource "azurerm_linux_virtual_machine" "vms" {
       storage_account_uri = null # Use managed storage account
     }
   }
+
+  # Managed Identity for Azure AD authentication
+  identity {
+    type = "SystemAssigned"
+  }
   
   tags = merge(
     local.common_tags,
@@ -364,6 +410,7 @@ resource "azurerm_windows_virtual_machine" "vms" {
   location            = local.resource_group_location
   size                = each.value.size
   zone                = each.value.zone
+  computer_name       = substr("${each.key}", 0, 15)  # Limit to 15 chars for Windows
   
   admin_username = each.value.admin_username
   admin_password = each.value.admin_password
@@ -398,6 +445,11 @@ resource "azurerm_windows_virtual_machine" "vms" {
     content {
       storage_account_uri = null # Use managed storage account
     }
+  }
+
+  # Managed Identity for Azure AD authentication
+  identity {
+    type = "SystemAssigned"
   }
   
   tags = merge(
