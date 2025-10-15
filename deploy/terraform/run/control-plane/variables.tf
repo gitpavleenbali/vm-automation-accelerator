@@ -223,3 +223,35 @@ variable "create_resource_group" {
   type        = bool
   default     = true
 }
+
+# ============================================================================
+# Authentication Variables (for Azure DevOps Pipeline Support)
+# ============================================================================
+
+variable "arm_client_id" {
+  description = "Azure Client ID for Service Principal authentication (pipeline mode)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "arm_client_secret" {
+  description = "Azure Client Secret for Service Principal authentication (pipeline mode)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "arm_tenant_id" {
+  description = "Azure Tenant ID for Service Principal authentication (pipeline mode)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "arm_subscription_id" {
+  description = "Azure Subscription ID for authentication (pipeline mode)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

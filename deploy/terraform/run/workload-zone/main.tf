@@ -36,26 +36,42 @@ provider "azurerm" {
   alias = "main"
   storage_use_azuread = true
   
+  # Use Service Principal authentication when ARM_CLIENT_ID is set (for pipelines)
+  # Use Azure CLI authentication when ARM_CLIENT_ID is not set (for local dev)
+  use_cli = var.arm_client_id == "" ? true : false
+  
+  # Service Principal configuration (used when ARM environment variables are set)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : var.control_plane_subscription_id
+  
   features {
     resource_group {
       prevent_deletion_if_contains_resources = false
     }
   }
-  
-  subscription_id = var.control_plane_subscription_id
 }
 
 # Default provider (aliases to main)
 provider "azurerm" {
   storage_use_azuread = true
   
+  # Use Service Principal authentication when ARM_CLIENT_ID is set (for pipelines)
+  # Use Azure CLI authentication when ARM_CLIENT_ID is not set (for local dev)
+  use_cli = var.arm_client_id == "" ? true : false
+  
+  # Service Principal configuration (used when ARM environment variables are set)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : var.control_plane_subscription_id
+  
   features {
     resource_group {
       prevent_deletion_if_contains_resources = false
     }
   }
-  
-  subscription_id = var.control_plane_subscription_id
 }
 
 # AzAPI provider for advanced features

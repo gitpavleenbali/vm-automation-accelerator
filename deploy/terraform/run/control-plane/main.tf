@@ -39,6 +39,16 @@ terraform {
 provider "azurerm" {
   alias = "main"
   
+  # Use Service Principal authentication when ARM_CLIENT_ID is set (for pipelines)
+  # Use Azure CLI authentication when ARM_CLIENT_ID is not set (for local dev)
+  use_cli = var.arm_client_id == "" ? true : false
+  
+  # Service Principal configuration (used when ARM environment variables are set)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : null
+  
   features {
     resource_group {
       prevent_deletion_if_contains_resources = false
@@ -48,12 +58,20 @@ provider "azurerm" {
       recover_soft_deleted_key_vaults = var.enable_soft_delete
     }
   }
-  
-  # subscription_id will be provided via environment or Azure CLI context
 }
 
 # Default provider (aliases to main)
 provider "azurerm" {
+  # Use Service Principal authentication when ARM_CLIENT_ID is set (for pipelines)
+  # Use Azure CLI authentication when ARM_CLIENT_ID is not set (for local dev)
+  use_cli = var.arm_client_id == "" ? true : false
+  
+  # Service Principal configuration (used when ARM environment variables are set)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : null
+  
   features {
     resource_group {
       prevent_deletion_if_contains_resources = false
@@ -63,13 +81,17 @@ provider "azurerm" {
       recover_soft_deleted_key_vaults = var.enable_soft_delete
     }
   }
-  
-  # subscription_id will be provided via environment or Azure CLI context
 }
 
 # AzAPI provider for advanced features
 provider "azapi" {
-  # subscription_id will be provided via environment or Azure CLI context
+  # Service Principal configuration (used when ARM environment variables are set)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : null
+  
+  use_cli = var.arm_client_id == "" ? true : false
 }
 
 # ============================================================================

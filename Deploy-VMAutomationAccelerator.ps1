@@ -334,6 +334,18 @@ function Invoke-TerraformDeploy {
         Write-Info "Creating execution plan..."
         $planFile = "$ComponentName-$Environment-$(Get-Date -Format 'yyyyMMdd-HHmmss').tfplan"
         $planArgs = @("plan", "-var-file=$ConfigFile", "-out=$planFile", "-detailed-exitcode")
+        
+        # Add ARM authentication variables if running in pipeline (Service Principal mode)
+        if ($env:ARM_CLIENT_ID) {
+            $planArgs += "-var=arm_client_id=$env:ARM_CLIENT_ID"
+            $planArgs += "-var=arm_client_secret=$env:ARM_CLIENT_SECRET"
+            $planArgs += "-var=arm_tenant_id=$env:ARM_TENANT_ID"
+            $planArgs += "-var=arm_subscription_id=$env:ARM_SUBSCRIPTION_ID"
+            Write-Info "Using Service Principal authentication for Terraform"
+        } else {
+            Write-Info "Using Azure CLI authentication for Terraform"
+        }
+        
         Write-Info "Running: terraform $($planArgs -join ' ')"
         $planOutput = & $script:TerraformCmd $planArgs 2>&1
         
