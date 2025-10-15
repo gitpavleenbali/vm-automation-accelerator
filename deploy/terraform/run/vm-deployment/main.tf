@@ -40,9 +40,10 @@ provider "azurerm" {
   alias = "main"
   storage_use_azuread = true
   
-  # When AzureCLI task sets ARM environment variables, explicitly use Service Principal mode
-  # This prevents Terraform from trying to use Azure CLI authentication with a Service Principal
-  use_cli = false  # AzureCLI task sets ARM_* env vars, provider will use those automatically
+  # Authentication handled by environment variables:
+  # - Pipeline: ARM_USE_CLI=false set in AzureCLI task forces Service Principal mode
+  # - Local: ARM_USE_CLI=true (or unset) allows Azure CLI authentication
+  # Do not hardcode use_cli here to allow environment variable to control behavior
   
   features {
     resource_group {
@@ -61,9 +62,10 @@ provider "azurerm" {
 provider "azurerm" {
   storage_use_azuread = true
   
-  # When AzureCLI task sets ARM environment variables, explicitly use Service Principal mode
-  # This prevents Terraform from trying to use Azure CLI authentication with a Service Principal
-  use_cli = false  # AzureCLI task sets ARM_* env vars, provider will use those automatically
+  # Authentication handled by environment variables:
+  # - Pipeline: ARM_USE_CLI=false set in AzureCLI task forces Service Principal mode
+  # - Local: ARM_USE_CLI=true (or unset) allows Azure CLI authentication
+  # Do not hardcode use_cli here to allow environment variable to control behavior
   
   features {
     resource_group {
