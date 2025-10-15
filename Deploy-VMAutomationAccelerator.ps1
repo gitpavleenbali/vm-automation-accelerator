@@ -255,18 +255,22 @@ function Invoke-TerraformDeploy {
         
         # In Azure DevOps pipeline, pass ARM credentials as Terraform variables
         # This follows Terraform's recommended Service Principal authentication method
+        $script:TerraformAuthVars = @()
+        
         if ($env:ARM_CLIENT_ID -and $env:ARM_CLIENT_SECRET -and $env:ARM_TENANT_ID) {
             Write-Success "✓ Service Principal credentials detected - Using explicit authentication"
             
-            # Export as TF_VAR_ variables so Terraform can read them
-            $env:TF_VAR_arm_client_id = $env:ARM_CLIENT_ID
-            $env:TF_VAR_arm_client_secret = $env:ARM_CLIENT_SECRET
-            $env:TF_VAR_arm_tenant_id = $env:ARM_TENANT_ID
+            # Build Terraform variable arguments to pass credentials explicitly
+            $script:TerraformAuthVars = @(
+                "-var", "arm_client_id=$env:ARM_CLIENT_ID",
+                "-var", "arm_client_secret=$env:ARM_CLIENT_SECRET",
+                "-var", "arm_tenant_id=$env:ARM_TENANT_ID"
+            )
             
-            Write-Success "✓ Exported Service Principal credentials as Terraform variables"
-            Write-Info "  - TF_VAR_arm_client_id: SET"
-            Write-Info "  - TF_VAR_arm_client_secret: SET"
-            Write-Info "  - TF_VAR_arm_tenant_id: SET"
+            Write-Success "✓ Will pass Service Principal credentials as Terraform -var arguments"
+            Write-Info "  - arm_client_id: SET"
+            Write-Info "  - arm_client_secret: SET"
+            Write-Info "  - arm_tenant_id: SET"
         }
         else {
             Write-Info "ℹ Service Principal credentials not detected - Using Azure CLI authentication"
@@ -337,14 +341,15 @@ function Invoke-TerraformDeploy {
         )
         
         # First attempt: Standard init with backend config
-        $initArgs = @("init", "-upgrade") + $backendConfig
-        Write-Info "Running: terraform $($initArgs -join ' ')"
+        # Add authentication variables if in pipeline mode
+        $initArgs = @("init", "-upgrade") + $backendConfig + $script:TerraformAuthVars
+        Write-Info "Running: terraform init -upgrade [backend-config...] $(if ($script:TerraformAuthVars) { '[auth-vars...]' })"
         $initOutput = & $script:TerraformCmd $initArgs 2>&1
         
         # If backend configuration changed, reconfigure automatically
         if ($LASTEXITCODE -ne 0 -and $initOutput -match "Backend configuration changed") {
             Write-Warning "Backend configuration changed, reconfiguring..."
-            $initArgs = @("init", "-reconfigure", "-upgrade") + $backendConfig
+            $initArgs = @("init", "-reconfigure", "-upgrade") + $backendConfig + $script:TerraformAuthVars
             $initOutput = & $script:TerraformCmd $initArgs 2>&1
         }
         
@@ -364,7 +369,7 @@ function Invoke-TerraformDeploy {
         # Create execution plan
         Write-Info "Creating execution plan..."
         $planFile = "$ComponentName-$Environment-$(Get-Date -Format 'yyyyMMdd-HHmmss').tfplan"
-        $planArgs = @("plan", "-var-file=$ConfigFile", "-out=$planFile", "-detailed-exitcode")
+        $planArgs = @("plan", "-var-file=$ConfigFile", "-out=$planFile", "-detailed-exitcode") + $script:TerraformAuthVars
         
         # Detect authentication mode for logging only
         if ($env:servicePrincipalId -or $env:ARM_CLIENT_ID) {
