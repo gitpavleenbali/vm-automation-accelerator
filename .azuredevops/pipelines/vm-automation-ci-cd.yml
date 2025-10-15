@@ -144,6 +144,8 @@ stages:
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'validate') }}) 
                 -DestroyAfterValidation:$(${{ eq(parameters.deploymentAction, 'destroy') }})
               workingDirectory: '$(System.DefaultWorkingDirectory)'
+            env:
+              ARM_USE_CLI: 'false'  # Explicitly tell Terraform to use Service Principal mode
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -189,6 +191,8 @@ stages:
                 -Environment $(targetEnvironment)
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'plan') }})
               workingDirectory: '$(System.DefaultWorkingDirectory)'
+            env:
+              ARM_USE_CLI: 'false'  # Explicitly tell Terraform to use Service Principal mode
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -275,6 +279,8 @@ stages:
               arguments: |
                 -Environment $(targetEnvironment)
               workingDirectory: '$(System.DefaultWorkingDirectory)'
+            env:
+              ARM_USE_CLI: 'false'  # Explicitly tell Terraform to use Service Principal mode
           
           - task: PowerShell@2
             displayName: 'Post-Deployment ServiceNow Update'
