@@ -244,16 +244,28 @@ function Invoke-TerraformDeploy {
     Push-Location $WorkingDirectory
     
     try {
+        # DIAGNOSTIC: Print all ARM-related environment variables for troubleshooting
+        Write-Header "Authentication Environment Diagnostic"
+        Write-Info "ARM_CLIENT_ID: $(if ($env:ARM_CLIENT_ID) { 'SET (***masked***)' } else { 'NOT SET' })"
+        Write-Info "ARM_CLIENT_SECRET: $(if ($env:ARM_CLIENT_SECRET) { 'SET (***masked***)' } else { 'NOT SET' })"
+        Write-Info "ARM_TENANT_ID: $(if ($env:ARM_TENANT_ID) { 'SET (***masked***)' } else { 'NOT SET' })"
+        Write-Info "ARM_SUBSCRIPTION_ID: $(if ($env:ARM_SUBSCRIPTION_ID) { 'SET (***masked***)' } else { 'NOT SET' })"
+        Write-Info "ARM_USE_CLI (before): $(if ($env:ARM_USE_CLI) { $env:ARM_USE_CLI } else { 'NOT SET' })"
+        Write-Info "servicePrincipalId: $(if ($env:servicePrincipalId) { 'SET (***masked***)' } else { 'NOT SET' })"
+        
         # In Azure DevOps pipeline, ensure ARM environment variables are preserved for Terraform
         # The AzureCLI task sets these, but PowerShell child processes need them explicitly
         if ($env:ARM_CLIENT_ID) {
-            Write-Info "✓ ARM_CLIENT_ID detected (from AzureCLI task)"
+            Write-Success "✓ ARM_CLIENT_ID detected - Running in Service Principal mode"
             $env:ARM_USE_CLI = "false"  # Force Service Principal mode when ARM_* vars are present
-            Write-Info "✓ Set ARM_USE_CLI=false to force Service Principal authentication"
+            Write-Success "✓ Set ARM_USE_CLI=false to force Service Principal authentication"
         }
         else {
-            Write-Info "ℹ Running in local mode - Azure CLI authentication will be used"
+            Write-Info "ℹ ARM_CLIENT_ID not detected - Running in local mode with Azure CLI authentication"
         }
+        
+        Write-Info "ARM_USE_CLI (after): $env:ARM_USE_CLI"
+        Write-Header "End Authentication Diagnostic"
         
         # Initialize Terraform with proper backend configuration
         Write-Info "Initializing Terraform..."
