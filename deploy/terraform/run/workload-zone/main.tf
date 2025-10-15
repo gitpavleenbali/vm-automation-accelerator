@@ -14,7 +14,9 @@ terraform {
     #   -backend-config="resource_group_name=xxx" \
     #   -backend-config="storage_account_name=xxx" \
     #   -backend-config="container_name=tfstate" \
-    #   -backend-config="key=workload-zone-{env}-{region}.tfstate"
+    #   -backend-config="key=workload-zone-{env}-{region}.tfstate" \
+    #   -backend-config="use_azuread_auth=true"
+    use_azuread_auth = true
   }
   
   required_providers {

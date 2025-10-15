@@ -38,7 +38,7 @@ output "state_storage_account_name" {
 
 output "state_storage_container_name" {
   description = "Name of the state storage container"
-  value       = azurerm_storage_container.tfstate.name
+  value       = "tfstate"  # Using existing backend container
 }
 
 output "state_storage_access_key" {
@@ -114,9 +114,9 @@ output "backend_config" {
   description = "Backend configuration for subsequent Terraform deployments"
   value = {
     subscription_id      = local.subscription_id
-    resource_group_name  = local.resource_group_name
-    storage_account_name = azurerm_storage_account.tfstate.name
-    container_name       = azurerm_storage_container.tfstate.name
+    resource_group_name  = "rg-vmaut-mgmt-eus-main-rg"
+    storage_account_name = "stvmautmgmteustfstatef9e"
+    container_name       = "tfstate"
     key                  = "control-plane.tfstate"
   }
 }
@@ -125,9 +125,9 @@ output "backend_config_file_content" {
   description = "Content for backend-config.tfvars file"
   value = <<-EOT
     subscription_id      = "${local.subscription_id}"
-    resource_group_name  = "${local.resource_group_name}"
-    storage_account_name = "${azurerm_storage_account.tfstate.name}"
-    container_name       = "${azurerm_storage_container.tfstate.name}"
+    resource_group_name  = "rg-vmaut-mgmt-eus-main-rg"
+    storage_account_name = "stvmautmgmteustfstatef9e"
+    container_name       = "tfstate"
     key                  = "control-plane.tfstate"
   EOT
 }

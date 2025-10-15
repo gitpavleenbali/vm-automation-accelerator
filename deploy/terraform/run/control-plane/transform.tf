@@ -3,13 +3,10 @@
 # Purpose: Essential local values for resource referencing
 ###############################################################################
 
-data "azurerm_client_config" "current" {}
+# Note: azurerm_client_config and subscription_id are already defined in main.tf
 
 locals {
-  # Subscription ID
-  subscription_id = coalesce(var.subscription_id, data.azurerm_client_config.current.subscription_id)
-  
-  # Common tags
+  # Common tags (only the additional ones not in main.tf)
   common_tags = merge(
     {
       Environment     = var.environment
@@ -21,4 +18,19 @@ locals {
     },
     var.tags
   )
+  
+  # Computed values for deployment tracking
+  computed = {
+    create_arm_tracking = false  # Disable ARM tracking for simplified deployment
+    resource_group_id   = var.create_resource_group ? azurerm_resource_group.control_plane[0].id : data.azurerm_resource_group.existing[0].id
+  }
+  
+  # Deployment metadata
+  deployment = {
+    id                = local.random_id
+    type              = "control-plane"
+    framework_version = "1.0.0"
+    deployed_by       = "vm-automation-accelerator"
+    timestamp         = timestamp()
+  }
 }

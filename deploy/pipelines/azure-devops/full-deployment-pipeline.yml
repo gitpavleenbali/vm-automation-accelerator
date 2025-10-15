@@ -50,6 +50,11 @@ parameters:
     type: boolean
     default: false
 
+  - name: firstTimeSetup
+    displayName: 'First-time setup (create backend infrastructure if needed)'
+    type: boolean
+    default: false
+
 variables:
   - group: vm-automation-secrets-${{ parameters.environment }}
   - name: azureServiceConnection
@@ -62,11 +67,87 @@ pool:
 
 stages:
   # ========================================
+  # STAGE 0: First-Time Setup (Optional)
+  # ========================================
+  - stage: FirstTimeSetup
+    displayName: 'First-Time Backend Setup'
+    condition: eq('${{ parameters.firstTimeSetup }}', true)
+    jobs:
+      - job: CreateBackendInfrastructure
+        displayName: 'Create Backend Infrastructure'
+        steps:
+          - checkout: self
+          
+          - task: AzureCLI@2
+            displayName: 'Create Backend Storage for Terraform State'
+            inputs:
+              azureSubscription: $(azureServiceConnection)
+              scriptType: 'pscore'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                Write-Host "=============================================="
+                Write-Host "First-Time Backend Setup"
+                Write-Host "=============================================="
+                
+                $backendRgName = "rg-vmaut-mgmt-eus-main-rg"
+                $backendStorageName = "stvmautmgmteustfstatef9e"
+                $location = "eastus"
+                $containerName = "tfstate"
+                
+                # Check if backend RG exists
+                $rgExists = az group exists --name $backendRgName
+                if ($rgExists -eq "false") {
+                    Write-Host "Creating backend resource group: $backendRgName"
+                    az group create --name $backendRgName --location $location
+                } else {
+                    Write-Host "✅ Backend resource group already exists: $backendRgName"
+                }
+                
+                # Check if storage account exists
+                try {
+                    $storageExists = az storage account show --name $backendStorageName --resource-group $backendRgName --query "name" -o tsv 2>$null
+                    if ($storageExists) {
+                        Write-Host "✅ Backend storage account already exists: $backendStorageName"
+                    }
+                } catch {
+                    Write-Host "Creating backend storage account: $backendStorageName"
+                    az storage account create `
+                        --name $backendStorageName `
+                        --resource-group $backendRgName `
+                        --location $location `
+                        --sku Standard_LRS `
+                        --encryption-services blob `
+                        --allow-shared-key-access false `
+                        --public-network-access Enabled
+                }
+                
+                # Create container if needed
+                try {
+                    az storage container create `
+                        --name $containerName `
+                        --account-name $backendStorageName `
+                        --auth-mode login
+                    Write-Host "✅ Container '$containerName' ready"
+                } catch {
+                    Write-Host "✅ Container '$containerName' already exists or created successfully"
+                }
+                
+                Write-Host "✅ Backend infrastructure ready for Terraform state"
+
+  # ========================================
   # STAGE 1: Control Plane Deployment
   # ========================================
   - stage: DeployControlPlane
     displayName: 'Deploy Control Plane'
-    condition: in('${{ parameters.deploymentScope }}', 'full', 'infrastructure-only')
+    dependsOn: FirstTimeSetup
+    condition: |
+      and(
+        in('${{ parameters.deploymentScope }}', 'full', 'infrastructure-only'),
+        or(
+          eq('${{ parameters.firstTimeSetup }}', false),
+          in(dependencies.FirstTimeSetup.result, 'Succeeded', 'Skipped')
+        )
+      )
     jobs:
       - job: ControlPlane
         displayName: 'Deploy Foundation Infrastructure'

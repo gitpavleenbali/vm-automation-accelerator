@@ -14,8 +14,8 @@ instance_number = "01"
 
 # Control plane configuration (for state management)
 control_plane_subscription_id   = "37ffd444-46e0-41dd-9e4b-f12857262095"
-control_plane_resource_group   = "rg-vmaut-controlplane-eus-shared"
-control_plane_storage_account  = "stvmautcpsharedeus"
+control_plane_resource_group   = "rg-vmaut-mgmt-eus-main-rg"
+control_plane_storage_account  = "stvmautmgmteustfstatef9e"
 control_plane_container_name   = "tfstate"
 
 # Network configuration
@@ -25,46 +25,38 @@ vnet_address_space = ["10.1.0.0/16"]
 subnets = {
   web = {
     name             = "snet-web"
-    address_prefixes = ["10.1.1.0/24"]
+    address_prefix = "10.1.1.0/24"
     service_endpoints = ["Microsoft.Storage"]
   }
   app = {
     name             = "snet-app"
-    address_prefixes = ["10.1.2.0/24"]
+    address_prefix = "10.1.2.0/24"
     service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault"]
   }
   data = {
     name             = "snet-data"
-    address_prefixes = ["10.1.3.0/24"]
+    address_prefix = "10.1.3.0/24"
     service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault", "Microsoft.Sql"]
   }
-  mgmt = {
+  management = {
     name             = "snet-mgmt"
-    address_prefixes = ["10.1.10.0/24"]
+    address_prefix = "10.1.10.0/24"
     service_endpoints = ["Microsoft.Storage", "Microsoft.KeyVault"]
   }
 }
 
 # Network Security Groups
-enable_network_security_groups = true
-default_security_rules         = true
+enable_nsg = true
 
 # Route table configuration
-enable_route_tables = false  # Not needed for basic dev environment
+enable_route_table = false  # Not needed for basic dev environment
 
 # Network monitoring
 enable_network_watcher = false  # Disabled for dev to reduce costs
 enable_flow_logs      = false   # Disabled for dev
 
-# NAT Gateway (for outbound internet access)
-enable_nat_gateway = false  # Not needed for basic dev testing
-
 # Private DNS zones
 enable_private_dns_zones = false  # Simplified dev environment
-
-# Monitoring and diagnostics
-enable_diagnostic_settings = false  # Disabled for dev to reduce costs
-log_retention_days         = 7      # Minimal retention for dev
 
 # Tags
 tags = {

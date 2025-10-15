@@ -280,7 +280,9 @@ locals {
     replace(
       try(
         var.custom_names["key_vault"],
-        "${var.resource_prefixes["key_vault"]}-${local.project_code}-${local.environment_code}-${local.location_code}-${local.random_code}${var.resource_suffixes["key_vault"]}"
+        local.random_code != "" ? 
+          "${var.resource_prefixes["key_vault"]}-${local.project_code}-${local.environment_code}-${local.location_code}-${local.random_code}${var.resource_suffixes["key_vault"]}" :
+          "${var.resource_prefixes["key_vault"]}-${local.project_code}-${local.environment_code}-${local.location_code}${var.resource_suffixes["key_vault"]}"
       ),
       "/[^a-zA-Z0-9-]/",
       ""

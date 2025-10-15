@@ -24,12 +24,7 @@ if ($FullDeployment) {
     $validateOnly = "true"
 }
 
-$command = @"
-az pipelines run --name "vm-automation-accelerator" \
-  --project "A-Z of Azure" \
-  --organization "https://dev.azure.com/azdopavleenbali/" \
-  --parameters environment=$Environment deploymentScope=full workspacePrefix=vm-automation-$Environment autoApprove=true validateOnly=$validateOnly
-"@
+$command = "az pipelines run --name `"vm-automation-accelerator`" --project `"A-Z of Azure`" --organization `"https://dev.azure.com/azdopavleenbali/`" --parameters environment=$Environment deploymentScope=full workspacePrefix=vm-automation-$Environment autoApprove=true validateOnly=$validateOnly"
 
 Write-Info "Executing command:"
 Write-Host $command -ForegroundColor Gray

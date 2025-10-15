@@ -1,0 +1,155 @@
+###############################################################################
+# VM Automation Accelerator - Infrastructure Configuration
+# Defines infrastructure components and their creation state
+###############################################################################
+
+# Global Configuration
+global:
+  project_code: "vmaut"
+  subscription_id: "37ffd444-46e0-41dd-9e4b-f12857262095"
+  default_location: "eastus"
+
+# Environment-specific configurations
+environments:
+  dev:
+    location: "eastus"
+    
+    # Control Plane Infrastructure
+    control_plane:
+      # Resource Group Configuration
+      resource_group:
+        name: "rg-vmaut-mgmt-eus-main-rg"
+        create_new: false  # Set to true for first-time deployment
+        
+      # Storage Account for Terraform State
+      storage_account:
+        name: "stvmautmgmteustfstatef9e"
+        create_new: false  # Set to true for first-time deployment
+        tier: "Standard"
+        replication: "LRS"
+        authentication: "azuread"  # Use Azure AD instead of keys
+        
+      # Key Vault Configuration
+      key_vault:
+        name_prefix: "kv-vmaut-dev-eus"
+        create_new: true  # Always create new with unique suffix
+        sku: "standard"
+        soft_delete_retention_days: 7
+        enable_purge_protection: false
+        
+      # Tags
+      tags:
+        Environment: "Development"
+        Project: "VM-Automation-Accelerator"
+        ManagedBy: "Terraform"
+        CreatedBy: "DevOps-Team"
+        
+    # Workload Zone Infrastructure  
+    workload_zone:
+      # Resource Group Configuration
+      resource_group:
+        name: "rg-vmaut-dev-eus-network"
+        create_new: true
+        
+      # Network Configuration
+      network:
+        virtual_network:
+          name: "vnet-dev-eus-workloadzone"
+          address_space: ["10.1.0.0/16"]
+        
+        # Subnet Configurations
+        subnets:
+          web:
+            name: "snet-web"
+            address_prefix: "10.1.1.0/24"
+            enable_nsg: true
+            enable_route_table: false
+            
+          app:
+            name: "snet-app" 
+            address_prefix: "10.1.2.0/24"
+            enable_nsg: true
+            enable_route_table: false
+            
+          data:
+            name: "snet-data"
+            address_prefix: "10.1.3.0/24"
+            enable_nsg: true
+            enable_route_table: false
+            
+          management:
+            name: "snet-mgmt"
+            address_prefix: "10.1.10.0/24"
+            enable_nsg: true
+            enable_route_table: false
+          
+      # Tags
+      tags:
+        Environment: "Development"
+        Project: "VM-Automation-Accelerator"
+        WorkloadType: "Network-Infrastructure"
+        
+    # VM Deployment Configuration
+    vm_deployment:
+      # Resource Group Configuration
+      resource_group:
+        name: "rg-vmaut-dev-eus-compute"  # Actual deployed VM resource group
+        create_new: true
+        
+      # Virtual Machine Configurations
+      linux_vms:
+        web01:
+          size: "Standard_B1s"
+          admin_username: "devuser"
+          subnet_key: "web"
+          os_disk_size_gb: 30
+          
+        app01:
+          size: "Standard_B1s"
+          admin_username: "devuser"
+          subnet_key: "app"
+          os_disk_size_gb: 30
+          
+      # Tags
+      tags:
+        Environment: "Development"
+        Project: "VM-Automation-Accelerator"
+        WorkloadType: "Virtual-Machines"
+
+  # Production Environment (for future use)
+  prod:
+    location: "eastus"
+    
+    control_plane:
+      resource_group:
+        name: "rg-vmaut-mgmt-eus-prod-rg"
+        create_new: true
+        
+      storage_account:
+        name: "stvmautmgmteusprod"
+        create_new: true
+        tier: "Standard"
+        replication: "GRS"
+        authentication: "azuread"
+        
+      key_vault:
+        name_prefix: "kv-vmaut-prod-eus"
+        create_new: true
+        sku: "premium"
+        soft_delete_retention_days: 90
+        enable_purge_protection: true
+        
+    # Additional prod configurations can be added here...
+
+# State File Naming Conventions
+state_files:
+  control_plane: "Control-Plane.tfstate"
+  workload_zone: "workloadzone-{environment}-{project_code}.tfstate"
+  vm_deployment: "vm-deployment-{environment}-{workload}.tfstate"
+
+# Terraform Backend Configuration
+terraform_backend:
+  container_name: "tfstate"
+  use_azuread_auth: true
+  enable_versioning: true
+  retention_days: 30

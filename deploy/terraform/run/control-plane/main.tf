@@ -14,7 +14,9 @@ terraform {
     #   -backend-config="resource_group_name=xxx" \
     #   -backend-config="storage_account_name=xxx" \
     #   -backend-config="container_name=tfstate" \
-    #   -backend-config="key=control-plane.tfstate"
+    #   -backend-config="key=control-plane.tfstate" \
+    #   -backend-config="use_azuread_auth=true"
+    use_azuread_auth = true
   }
   
   required_providers {
@@ -47,7 +49,7 @@ provider "azurerm" {
     }
   }
   
-  subscription_id = local.subscription_id
+  # subscription_id will be provided via environment or Azure CLI context
 }
 
 # Default provider (aliases to main)
@@ -62,12 +64,12 @@ provider "azurerm" {
     }
   }
   
-  subscription_id = local.subscription_id
+  # subscription_id will be provided via environment or Azure CLI context
 }
 
 # AzAPI provider for advanced features
 provider "azapi" {
-  subscription_id = local.subscription_id
+  # subscription_id will be provided via environment or Azure CLI context
 }
 
 # ============================================================================
@@ -109,18 +111,6 @@ module "naming" {
   workload_name    = "control"
   instance_number  = "01"
   random_id        = ""
-  
-  resource_prefixes = {
-    resource_group  = "rg"
-    storage_account = "st"
-    key_vault       = "kv"
-  }
-  
-  resource_suffixes = {
-    resource_group  = "cp-rg"
-    storage_account = "tfstate"
-    key_vault       = "cp-kv"
-  }
 }
 
 # ============================================================================
@@ -131,7 +121,7 @@ resource "azurerm_resource_group" "control_plane" {
   count    = var.create_resource_group ? 1 : 0
   provider = azurerm.main
   
-  name     = var.resource_group_name != null && var.resource_group_name != "" ? var.resource_group_name : module.naming.resource_group_name
+  name     = var.resource_group_name != null && var.resource_group_name != "" ? var.resource_group_name : module.naming.resource_group_names["main"]
   location = var.location
   tags     = local.common_tags
 }
@@ -167,6 +157,10 @@ resource "azurerm_storage_account" "tfstate" {
   https_traffic_only_enabled = true
   min_tls_version            = "TLS1_2"
   
+  # Disable key-based authentication - use Azure AD only
+  shared_access_key_enabled       = false
+  default_to_oauth_authentication = true
+  
   blob_properties {
     versioning_enabled = true
     
@@ -184,14 +178,15 @@ resource "azurerm_storage_account" "tfstate" {
   depends_on = [azurerm_resource_group.control_plane]
 }
 
-# State storage container
-resource "azurerm_storage_container" "tfstate" {
-  provider = azurerm.main
-  
-  name                  = var.state_storage_container_name
-  storage_account_id    = azurerm_storage_account.tfstate.id
-  container_access_type = "private"
-}
+# State storage container (using existing backend - commented out)
+# We use the existing storage account stvmautmgmteustfstatef9e for remote state
+# resource "azurerm_storage_container" "tfstate" {
+#   provider = azurerm.main
+#   
+#   name                  = var.state_storage_container_name
+#   storage_account_name  = azurerm_storage_account.tfstate.name
+#   container_access_type = "private"
+# }
 
 # ============================================================================
 # Key Vault

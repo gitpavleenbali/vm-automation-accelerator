@@ -7,7 +7,7 @@
 environment      = "dev"
 location        = "eastus"
 project_code    = "vmaut"
-workload_name   = "controlplane"
+workload_name   = "ctrl"
 
 # Naming configuration
 instance_number = "01"

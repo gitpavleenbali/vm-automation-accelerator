@@ -1,0 +1,1 @@
+{"automation_type":"SAP-Orchestrated","deployed_by":"Terraform","deployment_id":"fa1cb487-7185-29ba-87de-9157f97aa9b3","deployment_time":"2025-10-15T09:39:08Z","environment":"dev","features":{"backup_enabled":false,"governance_enabled":true,"monitoring_enabled":true},"module_version":"1.0.0","terraform_version":"1.13.3","vm_count":2,"workload":"testing"}
