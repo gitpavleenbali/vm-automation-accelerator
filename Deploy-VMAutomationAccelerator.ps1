@@ -336,11 +336,19 @@ function Invoke-TerraformDeploy {
         $planArgs = @("plan", "-var-file=$ConfigFile", "-out=$planFile", "-detailed-exitcode")
         
         # Add ARM authentication variables if running in pipeline (Service Principal mode)
-        if ($env:ARM_CLIENT_ID) {
-            $planArgs += "-var=arm_client_id=$env:ARM_CLIENT_ID"
-            $planArgs += "-var=arm_client_secret=$env:ARM_CLIENT_SECRET"
-            $planArgs += "-var=arm_tenant_id=$env:ARM_TENANT_ID"
-            $planArgs += "-var=arm_subscription_id=$env:ARM_SUBSCRIPTION_ID"
+        # AzureCLI task in Azure DevOps automatically sets these environment variables
+        if ($env:ARM_CLIENT_ID -or $env:AZURE_CLIENT_ID) {
+            # Use ARM_* variables if set (preferred), otherwise use AZURE_* variables set by AzureCLI task
+            $clientId = if ($env:ARM_CLIENT_ID) { $env:ARM_CLIENT_ID } else { $env:AZURE_CLIENT_ID }
+            $clientSecret = if ($env:ARM_CLIENT_SECRET) { $env:ARM_CLIENT_SECRET } else { $env:AZURE_CLIENT_SECRET }
+            $tenantId = if ($env:ARM_TENANT_ID) { $env:ARM_TENANT_ID } else { $env:AZURE_TENANT_ID }
+            $subscriptionId = if ($env:ARM_SUBSCRIPTION_ID) { $env:ARM_SUBSCRIPTION_ID } else { $env:AZURE_SUBSCRIPTION_ID }
+            
+            if ($clientId) { $planArgs += "-var=arm_client_id=$clientId" }
+            if ($clientSecret) { $planArgs += "-var=arm_client_secret=$clientSecret" }
+            if ($tenantId) { $planArgs += "-var=arm_tenant_id=$tenantId" }
+            if ($subscriptionId) { $planArgs += "-var=arm_subscription_id=$subscriptionId" }
+            
             Write-Info "Using Service Principal authentication for Terraform"
         } else {
             Write-Info "Using Azure CLI authentication for Terraform"

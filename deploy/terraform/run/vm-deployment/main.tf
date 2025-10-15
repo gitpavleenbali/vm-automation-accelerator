@@ -40,15 +40,10 @@ provider "azurerm" {
   alias = "main"
   storage_use_azuread = true
   
-  # Use Service Principal authentication when ARM_CLIENT_ID is set (for pipelines)
-  # Use Azure CLI authentication when ARM_CLIENT_ID is not set (for local dev)
+  # Detect if running in Azure DevOps pipeline
+  # Pipeline mode: use_cli = false (Service Principal via ARM env vars set by AzureCLI task)
+  # Local mode: use_cli = true (Azure CLI authentication)
   use_cli = var.arm_client_id == "" ? true : false
-  
-  # Service Principal configuration (used when ARM environment variables are set)
-  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
-  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
-  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
-  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : var.control_plane_subscription_id
   
   features {
     resource_group {
@@ -59,21 +54,18 @@ provider "azurerm" {
       skip_shutdown_and_force_delete = false
     }
   }
+  
+  subscription_id = var.control_plane_subscription_id
 }
 
 # Default provider (aliases to main)
 provider "azurerm" {
   storage_use_azuread = true
   
-  # Use Service Principal authentication when ARM_CLIENT_ID is set (for pipelines)
-  # Use Azure CLI authentication when ARM_CLIENT_ID is not set (for local dev)
+  # Detect if running in Azure DevOps pipeline
+  # Pipeline mode: use_cli = false (Service Principal via ARM env vars set by AzureCLI task)
+  # Local mode: use_cli = true (Azure CLI authentication)
   use_cli = var.arm_client_id == "" ? true : false
-  
-  # Service Principal configuration (used when ARM environment variables are set)
-  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
-  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
-  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
-  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : var.control_plane_subscription_id
   
   features {
     resource_group {
@@ -84,16 +76,13 @@ provider "azurerm" {
       skip_shutdown_and_force_delete = false
     }
   }
+  
+  subscription_id = var.control_plane_subscription_id
 }
 
 # AzAPI provider for advanced features
 provider "azapi" {
-  # Service Principal configuration (used when ARM environment variables are set)
-  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
-  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
-  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
-  subscription_id = var.arm_subscription_id != "" ? var.arm_subscription_id : var.control_plane_subscription_id
-  
+  subscription_id = var.control_plane_subscription_id
   use_cli = var.arm_client_id == "" ? true : false
 }
 
