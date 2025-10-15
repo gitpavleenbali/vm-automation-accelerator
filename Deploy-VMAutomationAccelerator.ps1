@@ -260,6 +260,20 @@ function Invoke-TerraformDeploy {
         if ($env:ARM_CLIENT_ID -and $env:ARM_CLIENT_SECRET -and $env:ARM_TENANT_ID) {
             Write-Success "✓ Service Principal credentials detected - Using explicit authentication"
             
+            # CRITICAL: Disable Azure CLI authentication entirely in Terraform
+            # The AzureCLI task sets environment variables that make Terraform think it should use CLI
+            # We need to FORCE Terraform to ignore CLI and use only Service Principal
+            $env:ARM_USE_CLI = "false"
+            $env:AZURE_CLI_DISABLE_CONNECTION_VERIFICATION = "true"
+            
+            # Also unset any Azure CLI config that might interfere
+            if ($env:AZURE_CONFIG_DIR) {
+                Write-Info "Clearing AZURE_CONFIG_DIR to prevent CLI interference"
+                Remove-Item Env:\AZURE_CONFIG_DIR -ErrorAction SilentlyContinue
+            }
+            
+            Write-Success "✓ Disabled Azure CLI authentication mode (ARM_USE_CLI=false)"
+            
             # Create a temporary .auto.tfvars file that Terraform will automatically load
             # This ensures variables are available during terraform init (module loading)
             $autoTfvarsPath = Join-Path $WorkingDirectory "pipeline-auth.auto.tfvars"
