@@ -132,21 +132,18 @@ stages:
             inputs:
               terraformVersion: $(terraformVersion)
           
-          - task: PowerShell@2
+          - task: AzureCLI@2
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
-              targetType: 'filePath'
-              filePath: 'Deploy-VMAutomationAccelerator.ps1'
+              azureSubscription: $(azureSubscription)
+              scriptType: 'pwsh'
+              scriptLocation: 'scriptPath'
+              scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
               arguments: |
                 -Environment $(targetEnvironment) 
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'validate') }}) 
                 -DestroyAfterValidation:$(${{ eq(parameters.deploymentAction, 'destroy') }})
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-            env:
-              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-              ARM_TENANT_ID: $(ARM_TENANT_ID)
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -181,20 +178,17 @@ stages:
             inputs:
               terraformVersion: $(terraformVersion)
           
-          - task: PowerShell@2
+          - task: AzureCLI@2
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
-              targetType: 'filePath'
-              filePath: 'Deploy-VMAutomationAccelerator.ps1'
+              azureSubscription: $(azureSubscription)
+              scriptType: 'pwsh'
+              scriptLocation: 'scriptPath'
+              scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
               arguments: |
                 -Environment $(targetEnvironment)
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'plan') }})
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-            env:
-              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-              ARM_TENANT_ID: $(ARM_TENANT_ID)
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -271,19 +265,16 @@ stages:
                 Write-Host "Build ID: $(Build.BuildId)"
                 Write-Host "Deployment Time: $(Get-Date)"
           
-          - task: PowerShell@2
+          - task: AzureCLI@2
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
-              targetType: 'filePath'
-              filePath: 'Deploy-VMAutomationAccelerator.ps1'
+              azureSubscription: $(azureSubscription)
+              scriptType: 'pwsh'
+              scriptLocation: 'scriptPath'
+              scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
               arguments: |
                 -Environment $(targetEnvironment)
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-            env:
-              ARM_SUBSCRIPTION_ID: $(ARM_SUBSCRIPTION_ID)
-              ARM_CLIENT_ID: $(ARM_CLIENT_ID)
-              ARM_CLIENT_SECRET: $(ARM_CLIENT_SECRET)
-              ARM_TENANT_ID: $(ARM_TENANT_ID)
           
           - task: PowerShell@2
             displayName: 'Post-Deployment ServiceNow Update'
