@@ -4,6 +4,31 @@
 ###############################################################################
 
 # ============================================================================
+# Authentication Variables (for Azure DevOps Service Principal)
+# ============================================================================
+
+variable "arm_client_id" {
+  description = "Azure Service Principal Client ID (set via ARM_CLIENT_ID env var in pipeline)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "arm_client_secret" {
+  description = "Azure Service Principal Client Secret (set via ARM_CLIENT_SECRET env var in pipeline)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "arm_tenant_id" {
+  description = "Azure Tenant ID (set via ARM_TENANT_ID env var in pipeline)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+# ============================================================================
 # Core Configuration Variables
 # ============================================================================
 

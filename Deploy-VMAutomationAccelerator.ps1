@@ -253,18 +253,26 @@ function Invoke-TerraformDeploy {
         Write-Info "ARM_USE_CLI (before): $(if ($env:ARM_USE_CLI) { $env:ARM_USE_CLI } else { 'NOT SET' })"
         Write-Info "servicePrincipalId: $(if ($env:servicePrincipalId) { 'SET (***masked***)' } else { 'NOT SET' })"
         
-        # In Azure DevOps pipeline, ensure ARM environment variables are preserved for Terraform
-        # The AzureCLI task sets these, but PowerShell child processes need them explicitly
-        if ($env:ARM_CLIENT_ID) {
-            Write-Success "✓ ARM_CLIENT_ID detected - Running in Service Principal mode"
-            $env:ARM_USE_CLI = "false"  # Force Service Principal mode when ARM_* vars are present
-            Write-Success "✓ Set ARM_USE_CLI=false to force Service Principal authentication"
+        # In Azure DevOps pipeline, pass ARM credentials as Terraform variables
+        # This follows Terraform's recommended Service Principal authentication method
+        if ($env:ARM_CLIENT_ID -and $env:ARM_CLIENT_SECRET -and $env:ARM_TENANT_ID) {
+            Write-Success "✓ Service Principal credentials detected - Using explicit authentication"
+            
+            # Export as TF_VAR_ variables so Terraform can read them
+            $env:TF_VAR_arm_client_id = $env:ARM_CLIENT_ID
+            $env:TF_VAR_arm_client_secret = $env:ARM_CLIENT_SECRET
+            $env:TF_VAR_arm_tenant_id = $env:ARM_TENANT_ID
+            
+            Write-Success "✓ Exported Service Principal credentials as Terraform variables"
+            Write-Info "  - TF_VAR_arm_client_id: SET"
+            Write-Info "  - TF_VAR_arm_client_secret: SET"
+            Write-Info "  - TF_VAR_arm_tenant_id: SET"
         }
         else {
-            Write-Info "ℹ ARM_CLIENT_ID not detected - Running in local mode with Azure CLI authentication"
+            Write-Info "ℹ Service Principal credentials not detected - Using Azure CLI authentication"
+            Write-Info "  This is normal for local development"
         }
         
-        Write-Info "ARM_USE_CLI (after): $env:ARM_USE_CLI"
         Write-Header "End Authentication Diagnostic"
         
         # Initialize Terraform with proper backend configuration

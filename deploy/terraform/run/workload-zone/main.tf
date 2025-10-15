@@ -36,9 +36,13 @@ provider "azurerm" {
   alias = "main"
   storage_use_azuread = true
   
-  # AzureCLI task automatically sets ARM environment variables for Service Principal authentication
-  # Local development uses Azure CLI authentication automatically
-  # No need to explicitly configure - provider detects authentication method automatically
+  # Explicit Service Principal authentication (when running in pipeline)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  
+  # When client_id is not set, use Azure CLI authentication (local development)
+  use_cli = var.arm_client_id == ""
   
   features {
     resource_group {
@@ -53,9 +57,13 @@ provider "azurerm" {
 provider "azurerm" {
   storage_use_azuread = true
   
-  # AzureCLI task automatically sets ARM environment variables for Service Principal authentication
-  # Local development uses Azure CLI authentication automatically
-  # No need to explicitly configure - provider detects authentication method automatically
+  # Explicit Service Principal authentication (when running in pipeline)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  
+  # When client_id is not set, use Azure CLI authentication (local development)
+  use_cli = var.arm_client_id == ""
   
   features {
     resource_group {

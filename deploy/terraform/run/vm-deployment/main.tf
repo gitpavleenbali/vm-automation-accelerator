@@ -40,10 +40,15 @@ provider "azurerm" {
   alias = "main"
   storage_use_azuread = true
   
-  # Authentication handled by environment variables:
-  # - Pipeline: ARM_USE_CLI=false set in AzureCLI task forces Service Principal mode
-  # - Local: ARM_USE_CLI=true (or unset) allows Azure CLI authentication
-  # Do not hardcode use_cli here to allow environment variable to control behavior
+  # Explicit Service Principal authentication (when running in pipeline)
+  # AzureCLI task sets ARM_CLIENT_ID, ARM_CLIENT_SECRET, ARM_TENANT_ID as env vars
+  # These are passed as TF_VAR_arm_* variables to Terraform
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  
+  # When client_id is not set, use Azure CLI authentication (local development)
+  use_cli = var.arm_client_id == ""
   
   features {
     resource_group {
@@ -62,10 +67,13 @@ provider "azurerm" {
 provider "azurerm" {
   storage_use_azuread = true
   
-  # Authentication handled by environment variables:
-  # - Pipeline: ARM_USE_CLI=false set in AzureCLI task forces Service Principal mode
-  # - Local: ARM_USE_CLI=true (or unset) allows Azure CLI authentication
-  # Do not hardcode use_cli here to allow environment variable to control behavior
+  # Explicit Service Principal authentication (when running in pipeline)
+  client_id       = var.arm_client_id != "" ? var.arm_client_id : null
+  client_secret   = var.arm_client_secret != "" ? var.arm_client_secret : null
+  tenant_id       = var.arm_tenant_id != "" ? var.arm_tenant_id : null
+  
+  # When client_id is not set, use Azure CLI authentication (local development)
+  use_cli = var.arm_client_id == ""
   
   features {
     resource_group {
