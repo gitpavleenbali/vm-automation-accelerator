@@ -36,10 +36,9 @@ provider "azurerm" {
   alias = "main"
   storage_use_azuread = true
   
-  # Detect if running in Azure DevOps pipeline
-  # Pipeline mode: use_cli = false (Service Principal via ARM env vars set by AzureCLI task)
-  # Local mode: use_cli = true (Azure CLI authentication)
-  use_cli = var.arm_client_id == "" ? true : false
+  # AzureCLI task automatically sets ARM environment variables for Service Principal authentication
+  # Local development uses Azure CLI authentication automatically
+  # No need to explicitly configure - provider detects authentication method automatically
   
   features {
     resource_group {
@@ -54,10 +53,9 @@ provider "azurerm" {
 provider "azurerm" {
   storage_use_azuread = true
   
-  # Detect if running in Azure DevOps pipeline
-  # Pipeline mode: use_cli = false (Service Principal via ARM env vars set by AzureCLI task)
-  # Local mode: use_cli = true (Azure CLI authentication)
-  use_cli = var.arm_client_id == "" ? true : false
+  # AzureCLI task automatically sets ARM environment variables for Service Principal authentication
+  # Local development uses Azure CLI authentication automatically
+  # No need to explicitly configure - provider detects authentication method automatically
   
   features {
     resource_group {
