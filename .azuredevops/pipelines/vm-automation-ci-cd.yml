@@ -132,20 +132,19 @@ stages:
             inputs:
               terraformVersion: $(terraformVersion)
           
-          - task: AzureCLI@2
+          - task: AzurePowerShell@5
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
               azureSubscription: $(azureSubscription)
-              scriptType: 'pwsh'
-              scriptLocation: 'scriptPath'
+              scriptType: 'filePath'
               scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
-              arguments: |
+              scriptArguments: |
                 -Environment $(targetEnvironment) 
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'validate') }}) 
                 -DestroyAfterValidation:$(${{ eq(parameters.deploymentAction, 'destroy') }})
+              azurePowerShellVersion: 'LatestVersion'
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-            env:
-              ARM_USE_CLI: 'false'  # Explicitly tell Terraform to use Service Principal mode
+              pwsh: true
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -180,19 +179,18 @@ stages:
             inputs:
               terraformVersion: $(terraformVersion)
           
-          - task: AzureCLI@2
+          - task: AzurePowerShell@5
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
               azureSubscription: $(azureSubscription)
-              scriptType: 'pwsh'
-              scriptLocation: 'scriptPath'
+              scriptType: 'filePath'
               scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
-              arguments: |
+              scriptArguments: |
                 -Environment $(targetEnvironment)
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'plan') }})
+              azurePowerShellVersion: 'LatestVersion'
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-            env:
-              ARM_USE_CLI: 'false'  # Explicitly tell Terraform to use Service Principal mode
+              pwsh: true
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -269,18 +267,17 @@ stages:
                 Write-Host "Build ID: $(Build.BuildId)"
                 Write-Host "Deployment Time: $(Get-Date)"
           
-          - task: AzureCLI@2
+          - task: AzurePowerShell@5
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
               azureSubscription: $(azureSubscription)
-              scriptType: 'pwsh'
-              scriptLocation: 'scriptPath'
+              scriptType: 'filePath'
               scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
-              arguments: |
+              scriptArguments: |
                 -Environment $(targetEnvironment)
+              azurePowerShellVersion: 'LatestVersion'
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-            env:
-              ARM_USE_CLI: 'false'  # Explicitly tell Terraform to use Service Principal mode
+              pwsh: true
           
           - task: PowerShell@2
             displayName: 'Post-Deployment ServiceNow Update'
