@@ -244,6 +244,17 @@ function Invoke-TerraformDeploy {
     Push-Location $WorkingDirectory
     
     try {
+        # In Azure DevOps pipeline, ensure ARM environment variables are preserved for Terraform
+        # The AzureCLI task sets these, but PowerShell child processes need them explicitly
+        if ($env:ARM_CLIENT_ID) {
+            Write-Info "✓ ARM_CLIENT_ID detected (from AzureCLI task)"
+            $env:ARM_USE_CLI = "false"  # Force Service Principal mode when ARM_* vars are present
+            Write-Info "✓ Set ARM_USE_CLI=false to force Service Principal authentication"
+        }
+        else {
+            Write-Info "ℹ Running in local mode - Azure CLI authentication will be used"
+        }
+        
         # Initialize Terraform with proper backend configuration
         Write-Info "Initializing Terraform..."
         
