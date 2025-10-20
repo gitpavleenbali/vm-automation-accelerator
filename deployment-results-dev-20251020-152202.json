@@ -1,0 +1,10 @@
+{
+  "VMDeployment": {
+    "PlanFile": "VM-Deployment-dev-20251020-152121.tfplan",
+    "Status": "PlanReady"
+  },
+  "WorkloadZone": {
+    "PlanFile": "Workload-Zone-dev-20251020-152003.tfplan",
+    "Status": "PlanReady"
+  }
+}

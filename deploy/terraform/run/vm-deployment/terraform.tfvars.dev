@@ -8,7 +8,7 @@ environment      = "dev"
 location        = "eastus"
 project_code    = "vmaut"
 workload_name   = "testing"
-instance_number = "02"
+instance_number = "01"
 
 # Control plane configuration
 control_plane_subscription_id   = "37ffd444-46e0-41dd-9e4b-f12857262095"

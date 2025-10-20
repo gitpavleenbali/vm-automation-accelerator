@@ -192,14 +192,81 @@ steps:
         }
 
   # ========================================
-  # Step 3: Publish Artifacts (Optional)
+  # Step 3: Create and Publish Artifacts
   # ========================================
+  - task: PowerShell@2
+    displayName: 'Prepare Deployment Artifacts - ${{ parameters.scriptName }}'
+    condition: and(always(), eq(${{ parameters.publishArtifacts }}, true))
+    inputs:
+      targetType: 'inline'
+      workingDirectory: ${{ parameters.workingDirectory }}
+      script: |
+        Write-Host "Preparing deployment artifacts for ${{ parameters.scriptName }}..."
+        
+        # Create artifacts directory
+        $artifactsDir = "$(System.DefaultWorkingDirectory)/deployment-artifacts"
+        New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
+        Write-Host "Created artifacts directory: $artifactsDir"
+        
+        # Copy deployment results JSON files
+        $deploymentResults = Get-ChildItem -Path "$(System.DefaultWorkingDirectory)" -Filter "deployment-results-*.json" -ErrorAction SilentlyContinue
+        if ($deploymentResults) {
+          foreach ($file in $deploymentResults) {
+            Copy-Item $file.FullName "$artifactsDir/" -Force
+            Write-Host "Copied: $($file.Name)"
+          }
+        } else {
+          Write-Host "No deployment-results-*.json files found"
+        }
+        
+        # Copy Terraform plan files
+        $planFiles = Get-ChildItem -Path "$(System.DefaultWorkingDirectory)" -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
+        if ($planFiles) {
+          foreach ($file in $planFiles) {
+            $destPath = Join-Path $artifactsDir $file.Name
+            Copy-Item $file.FullName $destPath -Force
+            Write-Host "Copied plan file: $($file.Name)"
+          }
+        } else {
+          Write-Host "No .tfplan files found"
+        }
+        
+        # Copy any terraform output logs
+        $tfLogs = Get-ChildItem -Path "$(System.DefaultWorkingDirectory)" -Filter "*terraform*.log" -Recurse -ErrorAction SilentlyContinue
+        if ($tfLogs) {
+          foreach ($file in $tfLogs) {
+            $destPath = Join-Path $artifactsDir $file.Name
+            Copy-Item $file.FullName $destPath -Force
+            Write-Host "Copied log file: $($file.Name)"
+          }
+        }
+        
+        # Create deployment summary
+        $summary = @{
+          deploymentName = "${{ parameters.scriptName }}"
+          environment = "${{ parameters.environment }}"
+          workspacePrefix = "${{ parameters.workspacePrefix }}"
+          deploymentMode = "${{ parameters.deploymentMode }}"
+          action = "${{ parameters.action }}"
+          timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+          buildId = "$(Build.BuildId)"
+          buildNumber = "$(Build.BuildNumber)"
+        } | ConvertTo-Json -Depth 10
+        
+        $summaryPath = Join-Path $artifactsDir "deployment-summary.json"
+        $summary | Out-File $summaryPath -Force
+        Write-Host "Created deployment summary: deployment-summary.json"
+        
+        # List all artifacts
+        Write-Host "`nArtifacts prepared:"
+        Get-ChildItem $artifactsDir | ForEach-Object { Write-Host "  - $($_.Name)" }
+
   - task: PublishBuildArtifacts@1
     displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }}'
-    condition: and(succeeded(), eq(${{ parameters.publishArtifacts }}, true))
+    condition: and(always(), eq(${{ parameters.publishArtifacts }}, true))
     inputs:
-      PathtoPublish: '$(System.DefaultWorkingDirectory)/terraform-output'
-      ArtifactName: 'terraform-output-${{ parameters.scriptName }}-${{ parameters.environment }}'
+      PathtoPublish: '$(System.DefaultWorkingDirectory)/deployment-artifacts'
+      ArtifactName: '${{ parameters.scriptName }}-deployment-artifacts'
       publishLocation: 'Container'
     continueOnError: true
 

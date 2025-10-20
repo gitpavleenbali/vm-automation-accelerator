@@ -695,6 +695,27 @@ try {
     $results | ConvertTo-Json -Depth 10 | Out-File $resultsPath
     Write-Success "Deployment results saved to: $resultsPath"
     
+    # Create additional pipeline artifacts if running in Azure DevOps
+    $isAzureDevOpsPipeline = $env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI -or $env:BUILD_BUILDID -or $env:AGENT_ID
+    if ($isAzureDevOpsPipeline) {
+        Write-Info "Creating additional pipeline artifacts..."
+        
+        # Create a summary deployment info file
+        $deploymentSummary = @{
+            deploymentId = if ($env:BUILD_BUILDID) { $env:BUILD_BUILDID } else { "local-$(Get-Date -Format 'yyyyMMddHHmmss')" }
+            buildNumber = if ($env:BUILD_BUILDNUMBER) { $env:BUILD_BUILDNUMBER } else { "local" }
+            environment = $Environment
+            timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+            duration = ((Get-Date) - $startTime).ToString('hh\:mm\:ss')
+            components = $results
+            status = "success"
+        }
+        
+        $summaryPath = "pipeline-deployment-summary-$Environment.json"
+        $deploymentSummary | ConvertTo-Json -Depth 10 | Out-File $summaryPath
+        Write-Success "Pipeline summary saved to: $summaryPath"
+    }
+    
     exit 0
 }
 catch {
