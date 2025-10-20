@@ -203,13 +203,17 @@ steps:
       script: |
         Write-Host "Preparing deployment artifacts for ${{ parameters.scriptName }}..."
         
-        # Create artifacts directory
-        $artifactsDir = "$(System.DefaultWorkingDirectory)/deployment-artifacts"
-        New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-        Write-Host "Created artifacts directory: $artifactsDir"
+        # Create terraform-output directory (match expected path)
+        $artifactsDir = "terraform-output"
+        if (-not (Test-Path $artifactsDir)) {
+          New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
+          Write-Host "Created terraform-output directory: $artifactsDir"
+        } else {
+          Write-Host "Terraform-output directory already exists: $artifactsDir"
+        }
         
         # Copy deployment results JSON files
-        $deploymentResults = Get-ChildItem -Path "$(System.DefaultWorkingDirectory)" -Filter "deployment-results-*.json" -ErrorAction SilentlyContinue
+        $deploymentResults = Get-ChildItem -Path "." -Filter "deployment-results-*.json" -ErrorAction SilentlyContinue
         if ($deploymentResults) {
           foreach ($file in $deploymentResults) {
             Copy-Item $file.FullName "$artifactsDir/" -Force
@@ -219,8 +223,17 @@ steps:
           Write-Host "No deployment-results-*.json files found"
         }
         
+        # Copy pipeline summary files  
+        $summaryFiles = Get-ChildItem -Path "." -Filter "pipeline-deployment-summary-*.json" -ErrorAction SilentlyContinue
+        if ($summaryFiles) {
+          foreach ($file in $summaryFiles) {
+            Copy-Item $file.FullName "$artifactsDir/" -Force
+            Write-Host "Copied: $($file.Name)"
+          }
+        }
+        
         # Copy Terraform plan files
-        $planFiles = Get-ChildItem -Path "$(System.DefaultWorkingDirectory)" -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
+        $planFiles = Get-ChildItem -Path "." -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
         if ($planFiles) {
           foreach ($file in $planFiles) {
             $destPath = Join-Path $artifactsDir $file.Name
@@ -232,7 +245,7 @@ steps:
         }
         
         # Copy any terraform output logs
-        $tfLogs = Get-ChildItem -Path "$(System.DefaultWorkingDirectory)" -Filter "*terraform*.log" -Recurse -ErrorAction SilentlyContinue
+        $tfLogs = Get-ChildItem -Path "." -Filter "*terraform*.log" -Recurse -ErrorAction SilentlyContinue
         if ($tfLogs) {
           foreach ($file in $tfLogs) {
             $destPath = Join-Path $artifactsDir $file.Name
@@ -241,31 +254,37 @@ steps:
           }
         }
         
-        # Create deployment summary
-        $summary = @{
-          deploymentName = "${{ parameters.scriptName }}"
-          environment = "${{ parameters.environment }}"
-          workspacePrefix = "${{ parameters.workspacePrefix }}"
-          deploymentMode = "${{ parameters.deploymentMode }}"
-          action = "${{ parameters.action }}"
-          timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
-          buildId = "$(Build.BuildId)"
-          buildNumber = "$(Build.BuildNumber)"
-        } | ConvertTo-Json -Depth 10
-        
+        # Create deployment summary if not exists
         $summaryPath = Join-Path $artifactsDir "deployment-summary.json"
-        $summary | Out-File $summaryPath -Force
-        Write-Host "Created deployment summary: deployment-summary.json"
+        if (-not (Test-Path $summaryPath)) {
+          $summary = @{
+            deploymentName = "${{ parameters.scriptName }}"
+            environment = "${{ parameters.environment }}"
+            workspacePrefix = "${{ parameters.workspacePrefix }}"
+            deploymentMode = "${{ parameters.deploymentMode }}"
+            action = "${{ parameters.action }}"
+            timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+            buildId = "$(Build.BuildId)"
+            buildNumber = "$(Build.BuildNumber)"
+          } | ConvertTo-Json -Depth 10
+          
+          $summary | Out-File $summaryPath -Force
+          Write-Host "Created deployment summary: deployment-summary.json"
+        }
         
         # List all artifacts
-        Write-Host "`nArtifacts prepared:"
-        Get-ChildItem $artifactsDir | ForEach-Object { Write-Host "  - $($_.Name)" }
+        Write-Host "`nArtifacts prepared in terraform-output:"
+        if (Test-Path $artifactsDir) {
+          Get-ChildItem $artifactsDir | ForEach-Object { Write-Host "  - $($_.Name) ($($_.Length) bytes)" }
+        } else {
+          Write-Host "  ERROR: terraform-output directory does not exist!"
+        }
 
   - task: PublishBuildArtifacts@1
     displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }}'
     condition: and(always(), eq(${{ parameters.publishArtifacts }}, true))
     inputs:
-      PathtoPublish: '$(System.DefaultWorkingDirectory)/deployment-artifacts'
+      PathtoPublish: 'terraform-output'
       ArtifactName: '${{ parameters.scriptName }}-deployment-artifacts'
       publishLocation: 'Container'
     continueOnError: true
