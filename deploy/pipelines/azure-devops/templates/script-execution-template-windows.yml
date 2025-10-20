@@ -281,8 +281,8 @@ steps:
         }
 
   - task: PublishBuildArtifacts@1
-    displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }}'
-    condition: and(always(), eq(${{ parameters.publishArtifacts }}, true))
+    displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }} [TEMPORARILY DISABLED]'
+    condition: false  # Temporarily disabled to bypass artifact publishing issues
     inputs:
       PathtoPublish: 'terraform-output'
       ArtifactName: '${{ parameters.scriptName }}-deployment-artifacts'
