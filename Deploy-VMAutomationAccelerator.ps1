@@ -308,19 +308,20 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
             Write-Info "  - BUILD_BUILDID: $(if ($env:BUILD_BUILDID) { 'SET' } else { 'NOT SET' })"
             Write-Info "  - AGENT_ID: $(if ($env:AGENT_ID) { 'SET' } else { 'NOT SET' })"
             
-            # Configure for managed identity authentication
+            # Configure for workload identity federation (NOT VM-based MSI)
+            # In Azure DevOps with managed identity service connection, we use Azure CLI context
             $env:ARM_USE_CLI = "true"
             $env:ARM_USE_AZUREAD_AUTH = "true"
-            $env:ARM_USE_MSI = "true"
+            # DO NOT set ARM_USE_MSI - this would try to use VM metadata endpoint
             
             # Ensure subscription is set for Terraform
             $currentSubscription = (az account show --query id -o tsv)
             $env:ARM_SUBSCRIPTION_ID = $currentSubscription
             
-            Write-Success "✓ Configured managed identity authentication:"
-            Write-Info "  - ARM_USE_CLI: true"
-            Write-Info "  - ARM_USE_AZUREAD_AUTH: true" 
-            Write-Info "  - ARM_USE_MSI: true"
+            Write-Success "✓ Configured workload identity federation authentication:"
+            Write-Info "  - ARM_USE_CLI: true (using Azure CLI context from service connection)"
+            Write-Info "  - ARM_USE_AZUREAD_AUTH: true (for storage backend)" 
+            Write-Info "  - ARM_USE_MSI: NOT SET (avoiding VM metadata endpoint)"
             Write-Info "  - ARM_SUBSCRIPTION_ID: SET"
         }
         else {
