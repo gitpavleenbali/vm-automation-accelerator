@@ -119,7 +119,7 @@ parameters:
 variables:
   - group: vm-automation-secrets-${{ parameters.environment }}
   - name: azureServiceConnection
-    value: 'azure-${{ parameters.environment }}-service-connection'
+    value: 'azure-vm-automation-managed-identity'
   - name: workingDirectory
     value: '$(System.DefaultWorkingDirectory)'
   - name: environment

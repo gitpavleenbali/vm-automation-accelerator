@@ -23,7 +23,7 @@ pr:
 
 variables:
   terraformVersion: '1.5.0'
-  azureSubscription: 'azure-vm-automation-connection'
+  azureSubscription: 'azure-vm-automation-managed-identity'
   vmImageName: 'ubuntu-latest'
   
 parameters:
@@ -132,19 +132,18 @@ stages:
             inputs:
               terraformVersion: $(terraformVersion)
           
-          - task: AzurePowerShell@5
+          - task: AzureCLI@2
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
               azureSubscription: $(azureSubscription)
-              scriptType: 'filePath'
+              scriptType: 'pwsh'
+              scriptLocation: 'scriptPath'
               scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
-              scriptArguments: |
+              arguments: |
                 -Environment $(targetEnvironment) 
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'validate') }}) 
                 -DestroyAfterValidation:$(${{ eq(parameters.deploymentAction, 'destroy') }})
-              azurePowerShellVersion: 'LatestVersion'
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-              pwsh: true
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -179,18 +178,17 @@ stages:
             inputs:
               terraformVersion: $(terraformVersion)
           
-          - task: AzurePowerShell@5
+          - task: AzureCLI@2
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
               azureSubscription: $(azureSubscription)
-              scriptType: 'filePath'
+              scriptType: 'pwsh'
+              scriptLocation: 'scriptPath'
               scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
-              scriptArguments: |
+              arguments: |
                 -Environment $(targetEnvironment)
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'plan') }})
-              azurePowerShellVersion: 'LatestVersion'
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-              pwsh: true
           
           - task: PublishBuildArtifacts@1
             displayName: 'Publish Deployment Results'
@@ -267,17 +265,16 @@ stages:
                 Write-Host "Build ID: $(Build.BuildId)"
                 Write-Host "Deployment Time: $(Get-Date)"
           
-          - task: AzurePowerShell@5
+          - task: AzureCLI@2
             displayName: 'Execute A-to-Z Deployment Script'
             inputs:
               azureSubscription: $(azureSubscription)
-              scriptType: 'filePath'
+              scriptType: 'pwsh'
+              scriptLocation: 'scriptPath'
               scriptPath: 'Deploy-VMAutomationAccelerator.ps1'
-              scriptArguments: |
+              arguments: |
                 -Environment $(targetEnvironment)
-              azurePowerShellVersion: 'LatestVersion'
               workingDirectory: '$(System.DefaultWorkingDirectory)'
-              pwsh: true
           
           - task: PowerShell@2
             displayName: 'Post-Deployment ServiceNow Update'
