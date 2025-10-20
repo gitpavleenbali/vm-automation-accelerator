@@ -7,7 +7,18 @@ param(
     [string]$Environment,
     
     [Parameter(Mandatory=$false)]
-    [string]$SubscriptionId,
+    [s        } else {
+            Write-Info "ℹ Service Principal credentials not detected - Using Azure CLI authentication"
+            Write-Info "   This is normal for local development"
+            
+            # CRITICAL FIX: Set ARM_USE_AZUREAD_AUTH for backend storage authentication
+            # This enables Azure AD authentication for Terraform backend (Storage Account)
+            # Without this, the naming module fails with "unable to build authorizer for Storage API"
+            $env:ARM_USE_AZUREAD_AUTH = "true"
+            Write-Success "✓ Enabled Azure AD authentication for storage backend (ARM_USE_AZUREAD_AUTH=true)"
+        }
+        
+        Write-Header "End Authentication Diagnostic"$SubscriptionId,
     
     [Parameter(Mandatory=$false)]
     [string]$Location = "eastus",
@@ -251,6 +262,7 @@ function Invoke-TerraformDeploy {
         Write-Info "ARM_TENANT_ID: $(if ($env:ARM_TENANT_ID) { 'SET (***masked***)' } else { 'NOT SET' })"
         Write-Info "ARM_SUBSCRIPTION_ID: $(if ($env:ARM_SUBSCRIPTION_ID) { 'SET (***masked***)' } else { 'NOT SET' })"
         Write-Info "ARM_USE_CLI (before): $(if ($env:ARM_USE_CLI) { $env:ARM_USE_CLI } else { 'NOT SET' })"
+        Write-Info "ARM_USE_AZUREAD_AUTH (before): $(if ($env:ARM_USE_AZUREAD_AUTH) { $env:ARM_USE_AZUREAD_AUTH } else { 'NOT SET' })"
         Write-Info "servicePrincipalId: $(if ($env:servicePrincipalId) { 'SET (***masked***)' } else { 'NOT SET' })"
         
         # In Azure DevOps pipeline, pass ARM credentials as Terraform variables
