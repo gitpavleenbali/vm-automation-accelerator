@@ -681,6 +681,9 @@ function Start-FullDeployment {
 
 # Script entry point
 try {
+    # Track script start time for duration calculation
+    $script:startTime = Get-Date
+    
     Test-Prerequisites
     
     # Initialize infrastructure configuration
@@ -739,7 +742,7 @@ try {
             buildNumber = if ($env:BUILD_BUILDNUMBER) { $env:BUILD_BUILDNUMBER } else { "local" }
             environment = $Environment
             timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
-            duration = ((Get-Date) - $startTime).ToString('hh\:mm\:ss')
+            duration = ((Get-Date) - $script:startTime).ToString('hh\:mm\:ss')
             components = $results
             status = "success"
             agentInfo = @{

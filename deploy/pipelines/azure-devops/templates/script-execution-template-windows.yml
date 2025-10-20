@@ -201,6 +201,10 @@ steps:
       targetType: 'inline'
       workingDirectory: ${{ parameters.workingDirectory }}
       script: |
+        # Set error handling for PowerShell compatibility
+        $ErrorActionPreference = "Continue"
+        $WarningPreference = "Continue"
+        
         Write-Host "Preparing deployment artifacts for ${{ parameters.scriptName }}..."
         
         # Create terraform-output directory (match expected path)
