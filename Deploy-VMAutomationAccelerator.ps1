@@ -688,6 +688,16 @@ try {
     $script:InfrastructureConfig = Get-InfrastructureConfig -Environment $Environment
     Write-Success "Infrastructure configuration loaded for environment: $Environment"
     
+    # Create terraform-output directory immediately if running in Azure DevOps pipeline
+    $isAzureDevOpsPipeline = $env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI -or $env:BUILD_BUILDID -or $env:AGENT_ID
+    $terraformOutputDir = $null
+    if ($isAzureDevOpsPipeline) {
+        Write-Info "Azure DevOps pipeline detected - Creating terraform-output directory for artifacts..."
+        $terraformOutputDir = "terraform-output"
+        New-Item -ItemType Directory -Path $terraformOutputDir -Force | Out-Null
+        Write-Success "Terraform-output directory created: $terraformOutputDir"
+    }
+    
     $results = Start-FullDeployment
     
     # Export results for pipeline integration
@@ -695,12 +705,35 @@ try {
     $results | ConvertTo-Json -Depth 10 | Out-File $resultsPath
     Write-Success "Deployment results saved to: $resultsPath"
     
-    # Create additional pipeline artifacts if running in Azure DevOps
-    $isAzureDevOpsPipeline = $env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI -or $env:BUILD_BUILDID -or $env:AGENT_ID
-    if ($isAzureDevOpsPipeline) {
-        Write-Info "Creating additional pipeline artifacts..."
+    # Handle pipeline artifacts
+    if ($isAzureDevOpsPipeline -and $terraformOutputDir) {
+        Write-Info "Pipeline execution detected - organizing artifacts in terraform-output directory..."
         
-        # Create a summary deployment info file
+        # Copy main deployment results to terraform-output
+        Copy-Item $resultsPath "$terraformOutputDir/" -Force
+        Write-Info "Copied deployment results to terraform-output directory"
+        
+        # Copy any terraform plan files to terraform-output
+        $planFiles = Get-ChildItem -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
+        if ($planFiles) {
+            foreach ($file in $planFiles) {
+                $destPath = Join-Path $terraformOutputDir $file.Name
+                Copy-Item $file.FullName $destPath -Force
+                Write-Info "Copied plan file: $($file.Name)"
+            }
+        }
+        
+        # Copy any Terraform state backups
+        $stateFiles = Get-ChildItem -Filter "terraform.tfstate.backup" -Recurse -ErrorAction SilentlyContinue
+        if ($stateFiles) {
+            foreach ($file in $stateFiles) {
+                $destPath = Join-Path $terraformOutputDir "tfstate-backup-$(Get-Date -Format 'yyyyMMdd-HHmmss').backup"
+                Copy-Item $file.FullName $destPath -Force
+                Write-Info "Copied state backup: $destPath"
+            }
+        }
+        
+        # Create comprehensive deployment summary
         $deploymentSummary = @{
             deploymentId = if ($env:BUILD_BUILDID) { $env:BUILD_BUILDID } else { "local-$(Get-Date -Format 'yyyyMMddHHmmss')" }
             buildNumber = if ($env:BUILD_BUILDNUMBER) { $env:BUILD_BUILDNUMBER } else { "local" }
@@ -709,11 +742,46 @@ try {
             duration = ((Get-Date) - $startTime).ToString('hh\:mm\:ss')
             components = $results
             status = "success"
+            agentInfo = @{
+                workingDirectory = $pwd.Path
+                terraformOutputDir = $terraformOutputDir
+                agentId = $env:AGENT_ID
+                buildId = $env:BUILD_BUILDID
+                buildNumber = $env:BUILD_BUILDNUMBER
+            }
         }
         
-        $summaryPath = "pipeline-deployment-summary-$Environment.json"
-        $deploymentSummary | ConvertTo-Json -Depth 10 | Out-File $summaryPath
-        Write-Success "Pipeline summary saved to: $summaryPath"
+        # Save summary to terraform-output directory
+        $summaryPath = Join-Path $terraformOutputDir "deployment-summary-$Environment.json"
+        $deploymentSummary | ConvertTo-Json -Depth 10 | Out-File $summaryPath -Force
+        Write-Success "Pipeline deployment summary saved to: $summaryPath"
+        
+        # List all artifacts in terraform-output directory
+        Write-Info "Artifacts available in terraform-output directory:"
+        Get-ChildItem $terraformOutputDir | ForEach-Object { 
+            Write-Info "  - $($_.Name) ($($_.Length) bytes)" 
+        }
+        
+        Write-Success "All artifacts prepared in terraform-output directory for pipeline publishing"
+    }
+    elseif ($isAzureDevOpsPipeline) {
+        Write-Warning "Pipeline detected but terraform-output directory not available - using fallback artifact creation"
+        
+        # Fallback: Create terraform-output directory now
+        $terraformOutputDir = "terraform-output"
+        New-Item -ItemType Directory -Path $terraformOutputDir -Force | Out-Null
+        Copy-Item $resultsPath "$terraformOutputDir/" -Force
+        
+        $deploymentSummary = @{
+            deploymentId = $env:BUILD_BUILDID
+            environment = $Environment
+            timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+            status = "success"
+            note = "Fallback artifact creation"
+        }
+        $summaryPath = Join-Path $terraformOutputDir "deployment-summary-$Environment.json"
+        $deploymentSummary | ConvertTo-Json -Depth 10 | Out-File $summaryPath -Force
+        Write-Success "Fallback artifacts created in terraform-output directory"
     }
     
     exit 0

@@ -145,11 +145,52 @@ stages:
                 -DestroyAfterValidation:$(${{ eq(parameters.deploymentAction, 'destroy') }})
               workingDirectory: '$(System.DefaultWorkingDirectory)'
           
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish Deployment Results'
+          - task: PowerShell@2
+            displayName: 'Prepare Deployment Artifacts'
             inputs:
-              pathToPublish: 'deployment-results-*.json'
-              artifactName: 'deployment-results-dev'
+              targetType: 'inline'
+              script: |
+                Write-Host "Preparing deployment artifacts..."
+                
+                # Create terraform-output directory for pipeline compatibility
+                $outputDir = "terraform-output"
+                New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+                
+                # Copy deployment results
+                $deploymentResults = Get-ChildItem -Filter "deployment-results-*.json" -ErrorAction SilentlyContinue
+                if ($deploymentResults) {
+                  foreach ($file in $deploymentResults) {
+                    Copy-Item $file.FullName "$outputDir/" -Force
+                    Write-Host "Copied: $($file.Name)"
+                  }
+                }
+                
+                # Copy terraform plan files
+                $planFiles = Get-ChildItem -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
+                if ($planFiles) {
+                  foreach ($file in $planFiles) {
+                    Copy-Item $file.FullName "$outputDir/" -Force
+                    Write-Host "Copied: $($file.Name)"
+                  }
+                }
+                
+                # Create summary
+                $summary = @{
+                  environment = "dev"
+                  timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+                  buildId = "$(Build.BuildId)"
+                  buildNumber = "$(Build.BuildNumber)"
+                } | ConvertTo-Json
+                $summary | Out-File "$outputDir/deployment-summary.json" -Force
+                
+                Write-Host "Artifacts prepared in terraform-output directory"
+            condition: always()
+          
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Deployment Artifacts'
+            inputs:
+              PathtoPublish: 'terraform-output'
+              ArtifactName: 'control-plane'
             condition: always()
 
 # ============================================================================
@@ -190,11 +231,52 @@ stages:
                 -ValidateOnly:$(${{ eq(parameters.deploymentAction, 'plan') }})
               workingDirectory: '$(System.DefaultWorkingDirectory)'
           
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish Deployment Results'
+          - task: PowerShell@2
+            displayName: 'Prepare UAT Deployment Artifacts'
             inputs:
-              pathToPublish: 'deployment-results-*.json'
-              artifactName: 'deployment-results-uat'
+              targetType: 'inline'
+              script: |
+                Write-Host "Preparing UAT deployment artifacts..."
+                
+                # Create terraform-output directory for pipeline compatibility
+                $outputDir = "terraform-output"
+                New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+                
+                # Copy deployment results
+                $deploymentResults = Get-ChildItem -Filter "deployment-results-*.json" -ErrorAction SilentlyContinue
+                if ($deploymentResults) {
+                  foreach ($file in $deploymentResults) {
+                    Copy-Item $file.FullName "$outputDir/" -Force
+                    Write-Host "Copied: $($file.Name)"
+                  }
+                }
+                
+                # Copy terraform plan files
+                $planFiles = Get-ChildItem -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
+                if ($planFiles) {
+                  foreach ($file in $planFiles) {
+                    Copy-Item $file.FullName "$outputDir/" -Force
+                    Write-Host "Copied: $($file.Name)"
+                  }
+                }
+                
+                # Create summary
+                $summary = @{
+                  environment = "uat"
+                  timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+                  buildId = "$(Build.BuildId)"
+                  buildNumber = "$(Build.BuildNumber)"
+                } | ConvertTo-Json
+                $summary | Out-File "$outputDir/deployment-summary.json" -Force
+                
+                Write-Host "UAT artifacts prepared in terraform-output directory"
+            condition: always()
+          
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish UAT Deployment Artifacts'
+            inputs:
+              PathtoPublish: 'terraform-output'
+              ArtifactName: 'workload-zone'
             condition: always()
 
 # ============================================================================
@@ -285,11 +367,53 @@ stages:
                 # TODO: Update ServiceNow ticket with deployment status
                 # Add implementation notes, deployment artifacts, validation results
           
-          - task: PublishBuildArtifacts@1
-            displayName: 'Publish Deployment Results'
+          - task: PowerShell@2
+            displayName: 'Prepare Production Deployment Artifacts'
             inputs:
-              pathToPublish: 'deployment-results-*.json'
-              artifactName: 'deployment-results-prod'
+              targetType: 'inline'
+              script: |
+                Write-Host "Preparing production deployment artifacts..."
+                
+                # Create terraform-output directory for pipeline compatibility
+                $outputDir = "terraform-output"
+                New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+                
+                # Copy deployment results
+                $deploymentResults = Get-ChildItem -Filter "deployment-results-*.json" -ErrorAction SilentlyContinue
+                if ($deploymentResults) {
+                  foreach ($file in $deploymentResults) {
+                    Copy-Item $file.FullName "$outputDir/" -Force
+                    Write-Host "Copied: $($file.Name)"
+                  }
+                }
+                
+                # Copy terraform plan files
+                $planFiles = Get-ChildItem -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
+                if ($planFiles) {
+                  foreach ($file in $planFiles) {
+                    Copy-Item $file.FullName "$outputDir/" -Force
+                    Write-Host "Copied: $($file.Name)"
+                  }
+                }
+                
+                # Create summary with ServiceNow ticket
+                $summary = @{
+                  environment = "prod"
+                  timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+                  buildId = "$(Build.BuildId)"
+                  buildNumber = "$(Build.BuildNumber)"
+                  serviceNowTicket = "$(ServiceNowTicket)"
+                } | ConvertTo-Json
+                $summary | Out-File "$outputDir/deployment-summary.json" -Force
+                
+                Write-Host "Production artifacts prepared in terraform-output directory"
+            condition: always()
+          
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Production Deployment Artifacts'
+            inputs:
+              PathtoPublish: 'terraform-output'
+              ArtifactName: 'vm-deployment'
             condition: always()
 
 # ============================================================================
