@@ -7,18 +7,7 @@ param(
     [string]$Environment,
     
     [Parameter(Mandatory=$false)]
-    [s        } else {
-            Write-Info "ℹ Service Principal credentials not detected - Using Azure CLI authentication"
-            Write-Info "   This is normal for local development"
-            
-            # CRITICAL FIX: Set ARM_USE_AZUREAD_AUTH for backend storage authentication
-            # This enables Azure AD authentication for Terraform backend (Storage Account)
-            # Without this, the naming module fails with "unable to build authorizer for Storage API"
-            $env:ARM_USE_AZUREAD_AUTH = "true"
-            Write-Success "✓ Enabled Azure AD authentication for storage backend (ARM_USE_AZUREAD_AUTH=true)"
-        }
-        
-        Write-Header "End Authentication Diagnostic"$SubscriptionId,
+    [string]$SubscriptionId,
     
     [Parameter(Mandatory=$false)]
     [string]$Location = "eastus",
@@ -313,6 +302,10 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
         else {
             Write-Info "ℹ Service Principal credentials not detected - Using Azure CLI authentication"
             Write-Info "  This is normal for local development"
+            
+            # Set ARM_USE_AZUREAD_AUTH for Terraform backend storage authentication
+            $env:ARM_USE_AZUREAD_AUTH = "true"
+            Write-Info "  - ARM_USE_AZUREAD_AUTH: SET (for Terraform backend storage)"
         }
         
         Write-Header "End Authentication Diagnostic"
