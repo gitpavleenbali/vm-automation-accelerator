@@ -254,9 +254,11 @@ function Invoke-TerraformDeploy {
         Write-Info "ARM_USE_AZUREAD_AUTH (before): $(if ($env:ARM_USE_AZUREAD_AUTH) { $env:ARM_USE_AZUREAD_AUTH } else { 'NOT SET' })"
         Write-Info "servicePrincipalId: $(if ($env:servicePrincipalId) { 'SET (***masked***)' } else { 'NOT SET' })"
         
-        # In Azure DevOps pipeline, pass ARM credentials as Terraform variables
-        # This follows Terraform's recommended Service Principal authentication method
+        # In Azure DevOps pipeline, handle different authentication scenarios
         $script:TerraformAuthVars = @()
+        
+        # Check if we're in Azure DevOps pipeline with managed identity
+        $isAzureDevOpsPipeline = $env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI -or $env:BUILD_BUILDID -or $env:AGENT_ID
         
         if ($env:ARM_CLIENT_ID -and $env:ARM_CLIENT_SECRET -and $env:ARM_TENANT_ID) {
             Write-Success "✓ Service Principal credentials detected - Using explicit authentication"
@@ -299,8 +301,30 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
             Write-Info "  - arm_client_secret: SET"
             Write-Info "  - arm_tenant_id: SET"
         }
+        elseif ($isAzureDevOpsPipeline) {
+            Write-Success "✓ Azure DevOps pipeline detected - Using managed identity authentication"
+            Write-Info "  Pipeline environment variables detected:"
+            Write-Info "  - SYSTEM_TEAMFOUNDATIONCOLLECTIONURI: $(if ($env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI) { 'SET' } else { 'NOT SET' })"
+            Write-Info "  - BUILD_BUILDID: $(if ($env:BUILD_BUILDID) { 'SET' } else { 'NOT SET' })"
+            Write-Info "  - AGENT_ID: $(if ($env:AGENT_ID) { 'SET' } else { 'NOT SET' })"
+            
+            # Configure for managed identity authentication
+            $env:ARM_USE_CLI = "true"
+            $env:ARM_USE_AZUREAD_AUTH = "true"
+            $env:ARM_USE_MSI = "true"
+            
+            # Ensure subscription is set for Terraform
+            $currentSubscription = (az account show --query id -o tsv)
+            $env:ARM_SUBSCRIPTION_ID = $currentSubscription
+            
+            Write-Success "✓ Configured managed identity authentication:"
+            Write-Info "  - ARM_USE_CLI: true"
+            Write-Info "  - ARM_USE_AZUREAD_AUTH: true" 
+            Write-Info "  - ARM_USE_MSI: true"
+            Write-Info "  - ARM_SUBSCRIPTION_ID: SET"
+        }
         else {
-            Write-Info "ℹ Service Principal credentials not detected - Using Azure CLI authentication"
+            Write-Info "ℹ Local development environment - Using Azure CLI authentication"
             Write-Info "  This is normal for local development"
             
             # Set ARM_USE_AZUREAD_AUTH for Terraform backend storage authentication
@@ -403,8 +427,10 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
         $planArgs = @("plan", "-var-file=$ConfigFile", "-out=$planFile", "-detailed-exitcode") + $script:TerraformAuthVars
         
         # Detect authentication mode for logging only
-        if ($env:servicePrincipalId -or $env:ARM_CLIENT_ID) {
+        if ($env:ARM_CLIENT_ID -and $env:ARM_CLIENT_SECRET) {
             Write-Info "Running in Azure DevOps pipeline with Service Principal authentication"
+        } elseif ($isAzureDevOpsPipeline) {
+            Write-Info "Running in Azure DevOps pipeline with Managed Identity authentication"
         } else {
             Write-Info "Running locally with Azure CLI authentication"
         }
