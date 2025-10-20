@@ -280,14 +280,15 @@ steps:
           Write-Host "  ERROR: terraform-output directory does not exist!"
         }
 
-  - task: PublishBuildArtifacts@1
-    displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }} [TEMPORARILY DISABLED]'
-    condition: false  # Temporarily disabled to bypass artifact publishing issues
-    inputs:
-      PathtoPublish: 'terraform-output'
-      ArtifactName: '${{ parameters.scriptName }}-deployment-artifacts'
-      publishLocation: 'Container'
-    continueOnError: true
+  # TEMPORARILY COMMENTED OUT - Artifact publishing causing pipeline failures
+  # - task: PublishBuildArtifacts@1
+  #   displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }} [DISABLED]'
+  #   condition: false  # Temporarily disabled to bypass artifact publishing issues
+  #   inputs:
+  #     PathtoPublish: 'terraform-output'
+  #     ArtifactName: '${{ parameters.scriptName }}-deployment-artifacts'
+  #     publishLocation: 'Container'
+  #   continueOnError: true
 
   # ========================================
   # Step 4: Deployment Summary
