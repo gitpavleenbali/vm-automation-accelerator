@@ -235,17 +235,15 @@ steps:
           Write-Host "Copied: $($_.Name)"
         }
         
-        # Create simple summary
-        $summary = @"
-{
-  "artifactType": "deployment-artifacts",
-  "scriptName": "${{ parameters.scriptName }}",
-  "environment": "${{ parameters.environment }}",
-  "timestamp": "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')",
-  "buildId": "$(Build.BuildId)",
-  "buildNumber": "$(Build.BuildNumber)"
-}
-"@
+        # Create simple summary (using single quotes to avoid YAML conflicts)
+        $summary = '{
+          "artifactType": "deployment-artifacts",
+          "scriptName": "${{ parameters.scriptName }}",
+          "environment": "${{ parameters.environment }}",
+          "timestamp": "' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC') + '",
+          "buildId": "$(Build.BuildId)",
+          "buildNumber": "$(Build.BuildNumber)"
+        }'
         $summary | Out-File "$artifactsDir/artifact-summary.json" -Force
         Write-Host "Created artifact summary"
         
