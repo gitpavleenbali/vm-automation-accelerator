@@ -228,6 +228,38 @@ function Test-Prerequisites {
     }
 }
 
+# Check for infrastructure dependencies that could cause deployment conflicts
+function Test-InfrastructureDependencies {
+    param(
+        [string]$ComponentName,
+        [string]$Environment
+    )
+    
+    Write-Info "Checking infrastructure dependencies for $ComponentName..."
+    
+    # For workload-zone updates, warn about VM dependencies
+    if ($ComponentName -eq "Workload-Zone") {
+        try {
+            # Check if VMs exist that might be using workload-zone subnets
+            $resourceGroups = az group list --query "[?contains(name, 'vmaut') && contains(name, '$Environment')].name" -o tsv
+            
+            foreach ($rg in $resourceGroups) {
+                if ($rg -match "compute") {
+                    $vms = az vm list -g $rg --query "[].name" -o tsv 2>$null
+                    if ($vms) {
+                        Write-Warning "Found VMs in resource group: $rg"
+                        Write-Warning "VMs: $($vms -join ', ')"
+                        Write-Warning "If workload-zone deployment fails with 'InUseSubnetCannotBeDeleted', VMs must be destroyed first."
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Info "Could not check VM dependencies (this is normal for new deployments)"
+        }
+    }
+}
+
 # Execute Terraform operations with error handling
 function Invoke-TerraformDeploy {
     param(
@@ -459,11 +491,28 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
                 Write-Info "Applying changes..."
                 $applyOutput = & $script:TerraformCmd apply -auto-approve $planFile 2>&1
                 
-                # Check for VM state conflicts and handle gracefully
+                # Check for VM state conflicts, subnet dependencies, and stale plans
                 if ($LASTEXITCODE -ne 0) {
                     $errorText = $applyOutput -join "`n"
                     
-                    if ($errorText -match "OperationNotAllowed.*powerOff.*deallocated|Saved plan is stale") {
+                    if ($errorText -match "OperationNotAllowed.*powerOff.*deallocated|Saved plan is stale|InUseSubnetCannotBeDeleted") {
+                        # Detect the specific type of error for targeted handling
+                        if ($errorText -match "InUseSubnetCannotBeDeleted") {
+                            Write-Warning "Infrastructure dependency conflict detected: Subnets are in use by VMs."
+                            Write-Warning "This requires destroying VMs before workload-zone infrastructure can be updated."
+                            Write-Info "Recommended sequence: VM-Deployment → Workload-Zone → Control-Plane"
+                            
+                            # Extract affected resources for better error reporting
+                            $subnetMatches = [regex]::Matches($errorText, "Subnet (\S+) is in use by.*?/(\S+)/")
+                            foreach ($match in $subnetMatches) {
+                                Write-Warning "Affected subnet: $($match.Groups[1].Value) used by: $($match.Groups[2].Value)"
+                            }
+                            
+                            Write-Error "Cannot proceed with workload-zone changes while VMs are using subnets."
+                            Write-Info "Please run VM-Deployment destroy first, then retry workload-zone deployment."
+                            throw "Infrastructure dependency conflict: $($errorText.Split("`n") | Select-Object -First 3 | Join-String -Separator ' ')"
+                        }
+                        
                         Write-Warning "VM state conflict or stale plan detected. Regenerating plan and retrying..."
                         
                         # Remove stale plan file
@@ -675,6 +724,9 @@ function Start-FullDeployment {
         
         # Phase 2: Workload Zone
         if (-not $SkipWorkloadZone) {
+            # Check for infrastructure dependencies before deployment
+            Test-InfrastructureDependencies -ComponentName "Workload-Zone" -Environment $Environment
+            
             $deploymentResults["WorkloadZone"] = Invoke-TerraformDeploy `
                 -WorkingDirectory $DeploymentConfig.WorkloadZonePath `
                 -ConfigFile "terraform.tfvars.$Environment" `
