@@ -22,7 +22,10 @@ param(
     [switch]$SkipControlPlane,
     
     [Parameter(Mandatory=$false)]
-    [switch]$SkipWorkloadZone
+    [switch]$SkipWorkloadZone,
+    
+    [Parameter(Mandatory=$false)]
+    [switch]$AutoResolveDependencies
 )
 
 # Global Configuration
@@ -257,6 +260,107 @@ function Test-InfrastructureDependencies {
         catch {
             Write-Info "Could not check VM dependencies (this is normal for new deployments)"
         }
+    }
+}
+
+# Automatically resolve infrastructure dependencies by destroying conflicting VMs
+function Resolve-InfrastructureDependencies {
+    param(
+        [string]$ComponentName,
+        [string]$Environment,
+        [string]$ErrorMessage
+    )
+    
+    if (-not $AutoResolveDependencies) {
+        Write-Warning "AutoResolveDependencies is disabled. Manual intervention required."
+        return $false
+    }
+    
+    Write-Header "🤖 AUTOMATIC DEPENDENCY RESOLUTION ACTIVATED"
+    Write-Warning "AutoResolveDependencies is enabled - attempting automatic conflict resolution"
+    
+    # Extract VM information from error message
+    $vmMatches = [regex]::Matches($ErrorMessage, "/resourceGroups/([^/]+)/.*?/networkInterfaces/([^/]+)")
+    $resolvedVMs = @()
+    
+    foreach ($match in $vmMatches) {
+        $resourceGroup = $match.Groups[1].Value
+        $nicName = $match.Groups[2].Value
+        $vmName = $nicName -replace "-NIC$", ""
+        
+        Write-Info "🎯 Target identified: VM '$vmName' in resource group '$resourceGroup'"
+        
+        try {
+            # Check if VM exists before attempting to destroy
+            $vmExists = az vm show --name $vmName --resource-group $resourceGroup --query "name" -o tsv 2>$null
+            if ($vmExists) {
+                Write-Warning "⚠️ DESTROYING VM: $vmName (required for workload-zone update)"
+                
+                # Create audit log entry
+                $auditEntry = @{
+                    timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
+                    action = "auto-destroy-vm"
+                    targetComponent = $ComponentName
+                    conflictingResource = @{
+                        type = "VM"
+                        name = $vmName
+                        resourceGroup = $resourceGroup
+                        nicName = $nicName
+                    }
+                    reason = "Infrastructure dependency conflict - VM blocking subnet deletion"
+                    environment = $Environment
+                    buildId = $env:BUILD_BUILDID
+                }
+                
+                # Log the audit entry
+                $auditPath = "auto-resolution-audit-$(Get-Date -Format 'yyyyMMdd').json"
+                $auditEntry | ConvertTo-Json -Depth 10 | Add-Content $auditPath
+                Write-Info "📝 Audit log updated: $auditPath"
+                
+                # Destroy the VM
+                Write-Info "🔄 Destroying VM: $vmName..."
+                $destroyOutput = az vm delete --name $vmName --resource-group $resourceGroup --yes --force-deletion 2>&1
+                
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Success "✅ VM destroyed successfully: $vmName"
+                    $resolvedVMs += $vmName
+                    
+                    # Also destroy the network interface if it still exists
+                    Write-Info "🔄 Cleaning up network interface: $nicName..."
+                    az network nic delete --name $nicName --resource-group $resourceGroup --no-wait 2>$null
+                    
+                    # Wait a moment for Azure to process the deletion
+                    Start-Sleep -Seconds 10
+                }
+                else {
+                    Write-Error "❌ Failed to destroy VM: $vmName - $destroyOutput"
+                    return $false
+                }
+            }
+            else {
+                Write-Info "VM $vmName not found (may already be destroyed)"
+            }
+        }
+        catch {
+            Write-Error "❌ Error during automatic VM destruction: $_"
+            return $false
+        }
+    }
+    
+    if ($resolvedVMs.Count -gt 0) {
+        Write-Success "🎉 AUTOMATIC RESOLUTION COMPLETED"
+        Write-Info "Destroyed VMs: $($resolvedVMs -join ', ')"
+        Write-Info "Infrastructure dependencies resolved - workload-zone deployment can now proceed"
+        
+        # Wait additional time for Azure to fully process deletions
+        Write-Info "⏳ Waiting for Azure to complete resource cleanup..."
+        Start-Sleep -Seconds 30
+        
+        return $true
+    }
+    else {
+        Write-Warning "No VMs were destroyed - manual resolution may still be required"
+        return $false
     }
 }
 
@@ -499,8 +603,6 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
                         # Detect the specific type of error for targeted handling
                         if ($errorText -match "InUseSubnetCannotBeDeleted") {
                             Write-Warning "Infrastructure dependency conflict detected: Subnets are in use by VMs."
-                            Write-Warning "This requires destroying VMs before workload-zone infrastructure can be updated."
-                            Write-Info "Recommended sequence: VM-Deployment → Workload-Zone → Control-Plane"
                             
                             # Extract affected resources for better error reporting
                             $subnetMatches = [regex]::Matches($errorText, "Subnet (\S+) is in use by.*?/(\S+)/")
@@ -508,8 +610,55 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
                                 Write-Warning "Affected subnet: $($match.Groups[1].Value) used by: $($match.Groups[2].Value)"
                             }
                             
+                            # Try automatic resolution if enabled
+                            if ($AutoResolveDependencies) {
+                                Write-Info "🤖 AutoResolveDependencies enabled - attempting automatic conflict resolution..."
+                                $resolved = Resolve-InfrastructureDependencies -ComponentName $ComponentName -Environment $Environment -ErrorMessage $errorText
+                                
+                                if ($resolved) {
+                                    Write-Success "✅ Infrastructure dependencies automatically resolved!"
+                                    Write-Info "🔄 Retrying $ComponentName deployment after dependency resolution..."
+                                    
+                                    # Remove the failed plan and refresh state
+                                    if (Test-Path $planFile) {
+                                        Remove-Item $planFile -Force
+                                        Write-Info "Removed failed plan file"
+                                    }
+                                    
+                                    # Refresh state to reflect deletions
+                                    Write-Info "Refreshing Terraform state after VM deletions..."
+                                    & $script:TerraformCmd refresh -var-file=$ConfigFile 2>&1 | Out-Null
+                                    
+                                    # Create new plan after dependency resolution
+                                    Write-Info "Creating new execution plan after dependency resolution..."
+                                    $newPlanFile = "$ComponentName-$Environment-resolved-$(Get-Date -Format 'yyyyMMdd-HHmmss').tfplan"
+                                    $retryPlanArgs = @("plan", "-var-file=$ConfigFile", "-out=$newPlanFile", "-detailed-exitcode") + $script:TerraformAuthVars
+                                    $retryPlanOutput = & $script:TerraformCmd $retryPlanArgs 2>&1
+                                    
+                                    if ($LASTEXITCODE -eq 2) {
+                                        # Apply new plan after dependency resolution
+                                        Write-Info "Applying plan after dependency resolution..."
+                                        $applyOutput = & $script:TerraformCmd apply -auto-approve $newPlanFile 2>&1
+                                        $planFile = $newPlanFile
+                                        
+                                        if ($LASTEXITCODE -eq 0) {
+                                            Write-Success "🎉 $ComponentName deployed successfully after automatic dependency resolution!"
+                                            return @{ Status = "Applied"; PlanFile = $planFile; AutoResolved = $true }
+                                        }
+                                    }
+                                    elseif ($LASTEXITCODE -eq 0) {
+                                        Write-Success "No changes required after dependency resolution"
+                                        return @{ Status = "NoChanges"; PlanFile = $newPlanFile; AutoResolved = $true }
+                                    }
+                                }
+                            }
+                            
+                            # If automatic resolution failed or is disabled, provide manual guidance
+                            Write-Warning "This requires destroying VMs before workload-zone infrastructure can be updated."
+                            Write-Info "Recommended sequence: VM-Deployment → Workload-Zone → Control-Plane"
                             Write-Error "Cannot proceed with workload-zone changes while VMs are using subnets."
-                            Write-Info "Please run VM-Deployment destroy first, then retry workload-zone deployment."
+                            Write-Info "Manual resolution: Please run VM-Deployment destroy first, then retry workload-zone deployment."
+                            Write-Info "Automatic resolution: Use -AutoResolveDependencies parameter to enable automatic VM cleanup"
                             throw "Infrastructure dependency conflict: $($errorText.Split("`n") | Select-Object -First 3 | Join-String -Separator ' ')"
                         }
                         

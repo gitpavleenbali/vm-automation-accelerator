@@ -72,6 +72,11 @@ parameters:
     displayName: 'Validation only mode'
     default: false
 
+  - name: autoResolveDependencies
+    type: boolean
+    displayName: 'Automatically resolve infrastructure dependencies (destroys conflicting VMs)'
+    default: false
+
 steps:
   # ========================================
   # Step 1: Pre-execution Validation
@@ -162,22 +167,23 @@ steps:
         # Execute the PowerShell deployment script
         try {
           $validateOnlyFlag = if ('${{ parameters.validateOnly }}' -eq 'True') { '-ValidateOnly' } else { '' }
+          $autoResolveFlag = if ('${{ parameters.autoResolveDependencies }}' -eq 'True') { '-AutoResolveDependencies' } else { '' }
           
           if ("${{ parameters.scriptName }}" -eq "control-plane") {
             Write-Host "Executing Control Plane deployment..."
-            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipWorkloadZone $validateOnlyFlag -Verbose"
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipWorkloadZone $validateOnlyFlag $autoResolveFlag -Verbose"
           }
           elseif ("${{ parameters.scriptName }}" -eq "workload-zone") {
             Write-Host "Executing Workload Zone deployment..."
-            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipControlPlane $validateOnlyFlag -Verbose"
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipControlPlane $validateOnlyFlag $autoResolveFlag -Verbose"
           }
           elseif ("${{ parameters.scriptName }}" -eq "vm-deployment") {
             Write-Host "Executing VM deployment..."
-            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipControlPlane -SkipWorkloadZone $validateOnlyFlag -Verbose"
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" -SkipControlPlane -SkipWorkloadZone $validateOnlyFlag $autoResolveFlag -Verbose"
           }
           else {
             Write-Host "Executing full deployment..."
-            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" $validateOnlyFlag -Verbose"
+            Invoke-Expression "& `".\Deploy-VMAutomationAccelerator.ps1`" -Environment `"${{ parameters.environment }}`" $validateOnlyFlag $autoResolveFlag -Verbose"
           }
           
           Write-Host "Deployment completed successfully"
