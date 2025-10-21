@@ -199,100 +199,64 @@ steps:
     condition: and(always(), eq(${{ parameters.publishArtifacts }}, true))
     inputs:
       targetType: 'inline'
+      pwsh: false  # Force Windows PowerShell instead of PowerShell Core
       workingDirectory: ${{ parameters.workingDirectory }}
       script: |
-        # Set PowerShell execution policy and error handling for better compatibility
-        $ErrorActionPreference = "Continue"
-        $WarningPreference = "SilentlyContinue"
-        $VerbosePreference = "SilentlyContinue"
+        # Simple, robust artifact preparation using basic PowerShell commands
+        Write-Host "=== Preparing deployment artifacts for ${{ parameters.scriptName }} ==="
         
-        # Force PowerShell to use Windows PowerShell modules when available
-        try {
-          if ($PSVersionTable.PSVersion.Major -ge 6) {
-            Write-Host "PowerShell Core detected - using compatibility mode"
-          }
-        } catch {
-          # Ignore PowerShell version detection errors
-        }
-        
-        Write-Host "Preparing deployment artifacts for ${{ parameters.scriptName }}..."
-        
-        # Create terraform-output directory (match expected path)
+        # Create terraform-output directory
         $artifactsDir = "terraform-output"
         if (-not (Test-Path $artifactsDir)) {
           New-Item -ItemType Directory -Path $artifactsDir -Force | Out-Null
-          Write-Host "Created terraform-output directory: $artifactsDir"
+          Write-Host "Created terraform-output directory"
         } else {
-          Write-Host "Terraform-output directory already exists: $artifactsDir"
+          Write-Host "Terraform-output directory already exists"
         }
         
-        # Copy deployment results JSON files
-        $deploymentResults = Get-ChildItem -Path "." -Filter "deployment-results-*.json" -ErrorAction SilentlyContinue
-        if ($deploymentResults) {
-          foreach ($file in $deploymentResults) {
-            Copy-Item $file.FullName "$artifactsDir/" -Force
-            Write-Host "Copied: $($file.Name)"
-          }
-        } else {
-          Write-Host "No deployment-results-*.json files found"
+        # Copy deployment results (basic file operations only)
+        Write-Host "Copying deployment artifacts..."
+        
+        # Copy JSON files
+        Get-ChildItem -Path "." -Filter "*.json" -ErrorAction SilentlyContinue | ForEach-Object {
+          Copy-Item $_.FullName "$artifactsDir/" -Force -ErrorAction SilentlyContinue
+          Write-Host "Copied: $($_.Name)"
         }
         
-        # Copy pipeline summary files  
-        $summaryFiles = Get-ChildItem -Path "." -Filter "pipeline-deployment-summary-*.json" -ErrorAction SilentlyContinue
-        if ($summaryFiles) {
-          foreach ($file in $summaryFiles) {
-            Copy-Item $file.FullName "$artifactsDir/" -Force
-            Write-Host "Copied: $($file.Name)"
-          }
+        # Copy plan files
+        Get-ChildItem -Path "." -Filter "*.tfplan" -ErrorAction SilentlyContinue | ForEach-Object {
+          Copy-Item $_.FullName "$artifactsDir/" -Force -ErrorAction SilentlyContinue
+          Write-Host "Copied: $($_.Name)"
         }
         
-        # Copy Terraform plan files
-        $planFiles = Get-ChildItem -Path "." -Filter "*.tfplan" -Recurse -ErrorAction SilentlyContinue
-        if ($planFiles) {
-          foreach ($file in $planFiles) {
-            $destPath = Join-Path $artifactsDir $file.Name
-            Copy-Item $file.FullName $destPath -Force
-            Write-Host "Copied plan file: $($file.Name)"
-          }
-        } else {
-          Write-Host "No .tfplan files found"
+        # Copy log files
+        Get-ChildItem -Path "." -Filter "*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+          Copy-Item $_.FullName "$artifactsDir/" -Force -ErrorAction SilentlyContinue
+          Write-Host "Copied: $($_.Name)"
         }
         
-        # Copy any terraform output logs
-        $tfLogs = Get-ChildItem -Path "." -Filter "*terraform*.log" -Recurse -ErrorAction SilentlyContinue
-        if ($tfLogs) {
-          foreach ($file in $tfLogs) {
-            $destPath = Join-Path $artifactsDir $file.Name
-            Copy-Item $file.FullName $destPath -Force
-            Write-Host "Copied log file: $($file.Name)"
-          }
-        }
-        
-        # Create deployment summary if not exists
-        $summaryPath = Join-Path $artifactsDir "deployment-summary.json"
-        if (-not (Test-Path $summaryPath)) {
-          $summary = @{
-            deploymentName = "${{ parameters.scriptName }}"
-            environment = "${{ parameters.environment }}"
-            workspacePrefix = "${{ parameters.workspacePrefix }}"
-            deploymentMode = "${{ parameters.deploymentMode }}"
-            action = "${{ parameters.action }}"
-            timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss UTC"
-            buildId = "$(Build.BuildId)"
-            buildNumber = "$(Build.BuildNumber)"
-          } | ConvertTo-Json -Depth 10
-          
-          $summary | Out-File $summaryPath -Force
-          Write-Host "Created deployment summary: deployment-summary.json"
-        }
+        # Create simple summary
+        $summary = @"
+{
+  "artifactType": "deployment-artifacts",
+  "scriptName": "${{ parameters.scriptName }}",
+  "environment": "${{ parameters.environment }}",
+  "timestamp": "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss UTC')",
+  "buildId": "$(Build.BuildId)",
+  "buildNumber": "$(Build.BuildNumber)"
+}
+"@
+        $summary | Out-File "$artifactsDir/artifact-summary.json" -Force
+        Write-Host "Created artifact summary"
         
         # List all artifacts
-        Write-Host "`nArtifacts prepared in terraform-output:"
+        Write-Host "`nArtifacts prepared:"
         if (Test-Path $artifactsDir) {
-          Get-ChildItem $artifactsDir | ForEach-Object { Write-Host "  - $($_.Name) ($($_.Length) bytes)" }
-        } else {
-          Write-Host "  ERROR: terraform-output directory does not exist!"
+          Get-ChildItem $artifactsDir -ErrorAction SilentlyContinue | ForEach-Object { 
+            Write-Host "  - $($_.Name)" 
+          }
         }
+        Write-Host "=== Artifact preparation completed ==="
 
   - task: PublishBuildArtifacts@1
     displayName: 'Publish Deployment Artifacts - ${{ parameters.scriptName }}'
