@@ -455,9 +455,22 @@ arm_tenant_id     = "$env:ARM_TENANT_ID"
                     return @{ Status = "PlanReady"; PlanFile = $planFile }
                 }
                 
-                # Apply changes
+                # Apply changes with retry logic for VM state conflicts
                 Write-Info "Applying changes..."
                 $applyOutput = & $script:TerraformCmd apply -auto-approve $planFile 2>&1
+                
+                # Check for VM state conflicts and retry if needed
+                if ($LASTEXITCODE -ne 0 -and $applyOutput -match "OperationNotAllowed.*powerOff.*deallocated") {
+                    Write-Warning "VM state conflict detected - VMs may be deallocated. Retrying with refresh..."
+                    
+                    # Refresh state and retry
+                    Write-Info "Refreshing Terraform state..."
+                    & $script:TerraformCmd refresh -var-file=$ConfigFile 2>&1 | Out-Null
+                    
+                    Write-Info "Retrying apply operation..."
+                    $applyOutput = & $script:TerraformCmd apply -auto-approve $planFile 2>&1
+                }
+                
                 if ($LASTEXITCODE -ne 0) {
                     throw "Terraform apply failed: $applyOutput"
                 }

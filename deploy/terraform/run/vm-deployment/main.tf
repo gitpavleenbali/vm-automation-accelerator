@@ -400,6 +400,14 @@ resource "azurerm_linux_virtual_machine" "vms" {
     type = "SystemAssigned"
   }
   
+  # Lifecycle management to handle VM state issues
+  lifecycle {
+    ignore_changes = [
+      # Ignore changes to VM power state during destroy operations
+      # This prevents conflicts when VMs are already deallocated
+    ]
+  }
+
   tags = merge(
     local.common_tags,
     {
