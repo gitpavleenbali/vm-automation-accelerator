@@ -2,7 +2,75 @@
 
 ## Executive Summary
 
-This document outlines the network architecture for accessing GPT-5 models deployed in Sweden Central from Germany West Central using private endpoints, ensuring secure, compliant, and performant connectivity for Uniper's AI workloads.
+This document outlines the network architecture for accessing GPT models deployed in Sweden Central from Germany West Central using private endpoints, ensuring secure, compliant, and performant connectivity for enterprise AI workloads. This specifically addresses customer question 3 about cross-region private endpoint functionality.
+
+## Cross-Region Private Endpoint Architecture - Question 3
+
+### Customer Question:
+*"How does it work if we have the private endpoint in GWEC and want to use it for a model in Sweden?"*
+
+### Answer: YES, this works with Azure's internal backbone routing!
+
+#### How Cross-Region Private Endpoints Work:
+1. **Private Endpoint Location**: You create the private endpoint in YOUR region (Germany West Central)
+2. **AI Foundry Hub Location**: The AI Foundry Hub can be in ANY Azure region (Sweden Central)
+3. **Azure Backbone Routing**: Azure's internal network automatically routes traffic between regions
+4. **No VNet Required in Target Region**: You don't need a VNet in Sweden Central
+
+#### Cross-Region Network Flow:
+```
+Your App (GWEC) → Private Endpoint (GWEC) → Azure Backbone → AI Foundry Hub (Sweden Central) → GPT Models
+```
+
+## Frequently Asked Questions (FAQ)
+
+### Q: Do I need a VNet in Sweden Central to use models there with my private endpoint in Germany West Central?
+**A: NO!** You only need:
+- Private endpoint in YOUR region (Germany West Central) 
+- AI Foundry Hub in the target region (Sweden Central)
+- Azure automatically handles the backbone routing between regions
+
+### Q: Is the connection still private when crossing regions?
+**A: YES!** The entire path remains private:
+- Your app → Private endpoint (private)
+- Private endpoint → Azure backbone (private Microsoft network)
+- Azure backbone → AI Foundry Hub (private)
+- No traffic goes over public internet
+
+### Q: What's the performance difference between local and cross-region?
+**A: Performance Comparison:**
+- Local (GWEC to GWEC): <5ms latency
+- Cross-region (GWEC to Sweden): ~15-25ms latency
+- Both options provide excellent performance for most AI workloads
+
+### Q: Which approach should I choose?
+**A: Recommendations:**
+- **For GPT-4o, O1, O3**: Use local processing in Germany West Central (optimal performance)
+- **For GPT-5**: Use cross-region to Sweden Central (when GPT-5 is required)
+- **Hybrid**: Deploy both and route based on model requirements
+
+### ⚠️ **IMPORTANT LIMITATIONS AND EXCEPTIONS**
+
+**Critical Limitation Found in Microsoft Documentation:**
+
+**For Agent Service (Private Network Secured Environments):**
+- **"All Foundry workspace resources must be deployed in the same region as the virtual network (VNet)"**
+- This includes: Cosmos DB, Storage Account, AI Search, Foundry Account, Project, Managed Identity, Azure OpenAI, or another Foundry resource used for model deployments
+- **Exception**: This limitation applies specifically to Agent Service with private network isolation
+
+**For Standard AI Foundry Hub/Project:**
+- Cross-region private endpoints ARE supported ✅
+- Private endpoint can be in different region than AI Foundry Hub
+- Azure backbone routing works as described
+
+**Key Distinction:**
+- **Standard AI Foundry**: Cross-region private endpoints supported ✅
+- **Agent Service with Private Networks**: Same-region requirement ⚠️
+
+**Recommendation:**
+- Verify with customer if they plan to use Agent Service or standard AI Foundry
+- For standard workloads: Cross-region approach works
+- For Agent Service: Consider regional deployment strategy
 
 ## Architecture Overview
 
@@ -12,7 +80,7 @@ architecture-beta
     group sweden(cloud)[Sweden Central Region]
     group azure_backbone(internet)[Azure Global Backbone]
 
-    service uniper_vnet(server)[Uniper VNet] in germany
+    service customer_vnet(server)[Customer VNet] in germany
     service private_endpoint(disk)[Private Endpoint] in germany
     service dns_resolver(database)[Private DNS Zone] in germany
     service client_app(server)[Client Applications] in germany
@@ -36,7 +104,7 @@ architecture-beta
 
 ### 1. Germany West Central Components
 
-#### Uniper Virtual Network (VNet)
+#### Customer Virtual Network (VNet)
 - **Address Space**: 10.0.0.0/16 (customer-defined)
 - **Subnets**:
   - Application Subnet: 10.0.1.0/24
@@ -59,7 +127,7 @@ Private Endpoint:
 ```yaml
 Private DNS Zone:
   Zone Name: privatelink.api.azureml.ms
-  Linked VNets: [Uniper-VNet-GWEC]
+  Linked VNets: [Customer-VNet-GWEC]
   A Records:
     - Name: aifoundry-sweden
       IP: 10.0.2.4
@@ -182,6 +250,67 @@ RBAC Assignments:
   - Scope: AI Foundry Hub (Sweden Central)
 ```
 
+## Alternative Architecture Comparison
+
+### Option 1: Local Processing (Recommended for Performance)
+**Configuration**: Everything in Germany West Central
+- AI Foundry Hub: Germany West Central
+- GPT Models: GPT-4o, GPT-4.1, O1, O3 (available locally)
+- Private Endpoint: Germany West Central
+- **Benefits**: <5ms latency, simplified setup, lower costs
+- **Use Case**: Standard AI workloads, optimal performance
+
+### Option 2: Cross-Region for GPT-5 (When Specific Models Needed)
+**Configuration**: Private endpoint in GWEC, AI Foundry in Sweden Central
+- AI Foundry Hub: Sweden Central (for GPT-5 access)
+- GPT Models: GPT-5 (only available in Sweden Central)
+- Private Endpoint: Germany West Central (YOUR region)
+- **Azure Backbone Routing**: Automatic cross-region connectivity
+- **Benefits**: Access to GPT-5, still private connectivity, no Sweden VNet needed
+- **Latency**: ~15-25ms (acceptable for most use cases)
+- **Use Case**: When specific models not available locally
+
+### Cross-Region Architecture Diagram (Option 2)
+
+```mermaid
+architecture-beta
+    group germany(cloud)[Germany West Central Region]
+    group sweden(cloud)[Sweden Central Region]
+    group azure_backbone(internet)[Azure Global Backbone]
+
+    service customer_vnet(server)[Customer VNet] in germany
+    service private_endpoint(disk)[Private Endpoint] in germany
+    service dns_resolver(database)[Private DNS Zone] in germany
+    service client_app(server)[Client Applications] in germany
+
+    service ai_foundry_hub(cloud)[AI Foundry Hub] in sweden
+    service gpt5_deployment(database)[GPT5 Deployment] in sweden
+    service sweden_compute(server)[AI Compute] in sweden
+
+    service azure_network(internet)[Azure Backbone Network] in azure_backbone
+
+    client_app:R --> R:private_endpoint
+    private_endpoint:B --> T:dns_resolver
+    private_endpoint:R --> L:azure_network
+    azure_network:R --> L:ai_foundry_hub
+    ai_foundry_hub:B --> T:gpt5_deployment
+    gpt5_deployment:R --> L:sweden_compute
+```
+
+## Implementation Considerations
+
+### When to Use Cross-Region Architecture:
+1. **Model Availability**: Specific models only available in other regions
+2. **Compliance Requirements**: Need EU processing but local region lacks models
+3. **Business Requirements**: Specific model capabilities required
+4. **Future-Proofing**: Preparing for new model releases
+
+### When to Use Local Architecture:
+1. **Performance Critical**: Applications requiring <10ms latency
+2. **Cost Optimization**: Avoiding cross-region data transfer charges
+3. **Simplicity**: Reduced architectural complexity
+4. **Available Models**: Required models available locally
+
 ## Data Residency & Compliance
 
 ### Data Processing Locations
@@ -206,10 +335,15 @@ Compliance Framework:
 ### Latency Expectations
 ```yaml
 Network Latency Components:
-  GWEC to Sweden Central: ~25-35ms
+  GWEC to Sweden Central: ~15-25ms (updated based on Azure backbone)
   Private Endpoint Overhead: ~2-5ms
   AI Model Processing: ~500-2000ms
-  Total Expected Latency: ~530-2040ms
+  Total Expected Latency: ~520-2030ms
+
+Performance Comparison:
+  Local Processing (GWEC): <5ms network latency
+  Cross-Region (GWEC to Sweden): ~15-25ms network latency
+  Difference: 10-20ms additional for cross-region
 
 Optimization Strategies:
   1. Connection Pooling: Reuse HTTPS connections
@@ -217,6 +351,14 @@ Optimization Strategies:
   3. Async Processing: Non-blocking API calls
   4. Caching: Cache responses where appropriate
 ```
+
+### Key Benefits of Cross-Region Approach:
+- ✅ Single private endpoint in Germany West Central handles all connectivity
+- ✅ Azure backbone provides secure, private routing cross-region
+- ✅ No need to manage VNets in multiple regions
+- ✅ Simplified network architecture
+- ✅ Private connectivity maintained end-to-end
+- ✅ Access to GPT-5 models not available in local region
 
 ### Network Bandwidth
 ```yaml
