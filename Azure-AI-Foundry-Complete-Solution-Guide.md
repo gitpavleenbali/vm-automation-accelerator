@@ -270,6 +270,29 @@ architecture-beta
 - **For GPT-5**: Use cross-region to Sweden Central (when GPT-5 is required)
 - **Hybrid**: Deploy both and route based on model requirements
 
+### ⚠️ **IMPORTANT LIMITATIONS AND EXCEPTIONS**
+
+**Critical Limitation Found in Microsoft Documentation:**
+
+**For Agent Service (Private Network Secured Environments):**
+- **"All Foundry workspace resources must be deployed in the same region as the virtual network (VNet)"**
+- This includes: Cosmos DB, Storage Account, AI Search, Foundry Account, Project, Managed Identity, Azure OpenAI, or another Foundry resource used for model deployments
+- **Exception**: This limitation applies specifically to Agent Service with private network isolation
+
+**For Standard AI Foundry Hub/Project:**
+- Cross-region private endpoints ARE supported
+- Private endpoint can be in different region than AI Foundry Hub
+- Azure backbone routing works as described
+
+**Key Distinction:**
+- **Standard AI Foundry**: Cross-region private endpoints supported ✅
+- **Agent Service with Private Networks**: Same-region requirement ⚠️
+
+**Recommendation:**
+- Verify with customer if they plan to use Agent Service or standard AI Foundry
+- For standard workloads: Cross-region approach works
+- For Agent Service: Consider regional deployment strategy
+
 ---
 
 ## 5. Technical Implementation Architecture
