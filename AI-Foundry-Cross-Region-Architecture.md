@@ -2,9 +2,9 @@
 
 ## Executive Summary
 
-This document outlines the network architecture for accessing GPT models deployed in Sweden Central from Germany West Central using private endpoints, ensuring secure, compliant, and performant connectivity for enterprise AI workloads. This specifically addresses customer question 3 about cross-region private endpoint functionality.
+This document outlines the network architecture for accessing GPT models deployed in Sweden Central from Germany West Central using private endpoints (cross-region private endpoint functionality), ensuring secure, compliant, and performant connectivity for enterprise AI workloads.
 
-## Cross-Region Private Endpoint Architecture - Question 3
+## Cross-Region Private Endpoint Architecture
 
 ### Customer Question:
 *"How does it work if we have the private endpoint in GWEC and want to use it for a model in Sweden?"*
