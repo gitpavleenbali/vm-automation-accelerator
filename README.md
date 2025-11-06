@@ -392,20 +392,9 @@ vm-automation-accelerator/
 └── terraform-docs/                   # 📖 Terraform Documentation
     ├── TERRAFORM-GUIDE.md             # Terraform usage guide
     └── STATE-MANAGEMENT.md            # State management guide
-
-# Internal Documentation (not in public repo)
-_docs/                                 # 🔒 Internal Documentation
-├── azure-ai-foundry/                 # Customer-specific AI Foundry docs
-├── deployment-guides/                 # Internal deployment guides  
-├── service-connections/               # Service connection setup guides
-├── architecture/                      # Detailed architecture docs
-├── deployment-results/                # Historical deployment results
-├── analysis/                          # Performance and cost analysis
-├── fixes/                            # Technical fixes documentation
-└── internal/                         # Development notes and progress
 ```
 
-> **📁 Repository Organization**: Version 2.0 features a clean, production-ready structure with all development documentation moved to `_docs/` (excluded from public repository). The main repository contains only essential public-facing documentation and production-ready code.
+> **📁 Repository Organization**: Version 2.0 features a clean, production-ready structure optimized for enterprise deployments. The repository contains comprehensive documentation and production-ready automation scripts.
 
 ---
 
@@ -536,9 +525,9 @@ tags = {
 
 ## Support
 
-- **Issues**: Report bugs and request features via [GitHub Issues](../../issues)
-- **Discussions**: Join community discussions via [GitHub Discussions](../../discussions)
-- **Documentation**: Comprehensive guides available in the `/docs` directory
+- **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/gitpavleenbali/vm-automation-accelerator/issues)
+- **Discussions**: Join community discussions via [GitHub Discussions](https://github.com/gitpavleenbali/vm-automation-accelerator/discussions)
+- **Documentation**: Comprehensive guides available in this repository
 
 ---
 
