@@ -526,7 +526,7 @@ tags = {
 ## Support
 
 - **Issues**: Report bugs and request features via [GitHub Issues](https://github.com/gitpavleenbali/vm-automation-accelerator/issues)
-- **Discussions**: Join community discussions via [GitHub Discussions](https://github.com/gitpavleenbali/vm-automation-accelerator/discussions)
+- **Community**: Star ⭐ this repository and share your experience
 - **Documentation**: Comprehensive guides available in this repository
 
 ---
